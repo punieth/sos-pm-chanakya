@@ -1,0 +1,34 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "blue-paper-7ac3",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-09-27",
+	"compatibility_flags": [
+		"global_fetch_strictly_public"
+	],
+	// KV namespace to remember which feed items were processed
+	"kv_namespaces": [
+		{
+			"binding": "SEEN",
+			"id": "aa2eac27da7347d1b29780b6e36c4a17"
+		} // dev will emulate; prod id comes after `wrangler kv:namespace create`
+	],
+	// Environment variables (safe, non-secret)
+	"vars": {
+		"NOTION_DATABASE_ID": "27c42d2d9aa380d38ec8c6c9c45605fc",
+		"FEED_URLS": "https://android-developers.googleblog.com/feeds/posts/default,https://developer.apple.com/news/rss/news.rss,https://developers.google.com/search/blog/feed.xml,https://www.medianama.com/feed/,https://inc42.com/feed/"
+	},
+	// Cron schedule (Cloudflare will invoke your Worker on this schedule in prod)
+	"triggers": {
+		"crons": [
+			"0 */12 * * *"
+		]
+	},
+	// Optional: you can keep your public assets config as generated
+	"assets": {
+		"directory": "./public"
+	},
+	"observability": {
+		"enabled": true
+	}
+}
