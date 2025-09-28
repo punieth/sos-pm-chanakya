@@ -8,29 +8,53 @@ export default {
 	  const url = new URL(request.url);
 	  console.log("HIT_FETCH", request.method, url.pathname);
   
+	  // --- NEW: score endpoint ---
+	  if (url.pathname === "/score-new") {
+		try {
+		  const limit = parseInt((env as any).SCORE_BATCH_SIZE || "15", 10);
+		  const pages = await notionFetchUnscored(env, limit);
+		  if (!pages.length) return json({ ok: true, message: "No unscored rows." });
+  
+		  const results: Array<{ id: string; ok: boolean; error?: string }> = [];
+		  for (const p of pages) {
+			try {
+			  const shaped = shapeContentForLLM(p);
+			  const llmJson = await callLLM(env, shaped.prompt);
+			  const parsed = safeParseLLM(llmJson);
+			  const mapped = mapLLMToNotion(parsed);
+			  await notionUpdateScoring(env, p.id, mapped);
+			  results.push({ id: p.id, ok: true });
+			} catch (e: any) {
+			  results.push({ id: p.id, ok: false, error: String(e?.message || e) });
+			}
+		  }
+		  return json({ ok: true, updated: results.filter(r => r.ok).length, results });
+		} catch (e: any) {
+		  return json({ ok: false, error: String(e?.message || e) }, 500);
+		}
+	  }
+  
 	  if (url.pathname === "/run") {
 		const force = url.searchParams.get("force") === "1";
 		const details = await run(env, { force });
 		return json(details);
 	  }
   
-	  // Quick probe: pull a URL and return first 1200 chars (for debugging feeds)
+	  // Debug probe (optional)
 	  if (url.pathname === "/debug/fetch") {
 		const target = url.searchParams.get("url");
-		console.log("DEBUG_FETCH target =", target);
 		if (!target) return new Response("missing ?url=", { status: 400 });
 		const txt = await safeGet(target);
 		if (!txt) return new Response("fetch failed", { status: 502 });
 		return new Response(txt.slice(0, 1200), { headers: { "content-type": "text/plain" } });
 	  }
   
-	  // Admin: clear ALL KV keys (protect with token)
+	  // Admin: clear KV (unchanged)
 	  if (url.pathname === "/admin/kv/clear-all") {
 		const token = url.searchParams.get("token") || "";
 		if (!env.ADMIN_TOKEN || token !== env.ADMIN_TOKEN) {
 		  return json({ ok: false, error: "unauthorized" }, 401);
 		}
-		console.log("ADMIN_CLEAR_ALL");
 		const deleted = await clearAllKV(env.SEEN);
 		return json({ ok: true, deleted });
 	  }
@@ -359,3 +383,315 @@ export default {
 	for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
 	return (h >>> 0).toString(36);
   }
+
+  /********************
+ * /score-new endpoint
+ * - Reads latest unscored rows from Notion
+ * - Calls LLM
+ * - Updates scoring fields back to Notion
+ ********************/
+interface ScoreResult {
+	id: string;
+	ok: boolean;
+	error?: string;
+  }
+
+  type NotionPageLite = {
+	id: string;
+	url?: string;
+	title?: string;      // Source Name
+	sourceName?: string; // redundant, but handy
+	type?: string;       // Select
+	format?: string;     // Select
+  };
+  
+  async function notionFetchUnscored(env: Env, limit: number): Promise<NotionPageLite[]> {
+	// Filter: Signal Score is empty (null)
+	const body = {
+	  filter: {
+		property: "Signal Score",
+		number: { is_empty: true }
+	  },
+	  sorts: [
+		{ property: "Published At", direction: "descending" },
+		{ property: "Last Checked", direction: "descending" }
+	  ],
+	  page_size: Math.min(limit, 25)
+	};
+  
+	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
+	  method: "POST",
+	  headers: notionHeaders(env),
+	  body: JSON.stringify(body)
+	});
+	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
+	const data = await res.json();
+  
+	const pages: NotionPageLite[] = [];
+	for (const r of (data.results || [])) {
+	  const props = r.properties || {};
+	  pages.push({
+		id: r.id,
+		url: props["URL"]?.url,
+		title: extractTitle(props["Source Name"]),
+		sourceName: extractTitle(props["Source Name"]),
+		type: props["Type"]?.select?.name,
+		format: props["Format"]?.select?.name
+	  });
+	}
+	return pages;
+  }
+  
+  function extractTitle(titleProp: any): string | undefined {
+	const arr = titleProp?.title || [];
+	if (!Array.isArray(arr) || arr.length === 0) return undefined;
+	return arr.map((t: any) => t.plain_text || t.text?.content).filter(Boolean).join(" ").trim();
+  }
+  
+  function notionHeaders(env: Env): Record<string, string> {
+	return {
+	  Authorization: `Bearer ${env.NOTION_TOKEN}`,
+	  "Notion-Version": "2022-06-28",
+	  "Content-Type": "application/json"
+	};
+  }
+  
+  type NotionScorePayload = {
+	signalScore: number;
+	roleTag: "IC" | "Lead" | "VP";
+	quickAction: string;
+	why: string;
+	decisionWindow: "<7d" | "7–30d" | ">30d";
+	affectedSteps: string[]; // Multi-select names
+	kpiImpact: string[];     // Multi-select names
+	status: "Keep" | "Archive" | "Researching" | "Draft";
+  };
+  
+  async function notionUpdateScoring(env: Env, pageId: string, s: NotionScorePayload): Promise<void> {
+	const props: any = {
+	  "Signal Score": { number: clamp(+s.signalScore, 0, 10) },
+	  "Role Tag": { select: { name: s.roleTag } },
+	  "Quick Action": { rich_text: [{ text: { content: s.quickAction.slice(0, 1000) } }] },
+	  "Why": { rich_text: [{ text: { content: s.why.slice(0, 4000) } }] },
+	  "Decision Window": { select: { name: s.decisionWindow } },
+	  "Affected Steps": { multi_select: s.affectedSteps.map(n => ({ name: n })) },
+	  "KPI Impact": { multi_select: s.kpiImpact.map(n => ({ name: n })) },
+	  "Status": { select: { name: s.status } }
+	};
+  
+	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+	  method: "PATCH",
+	  headers: notionHeaders(env),
+	  body: JSON.stringify({ properties: props })
+	});
+	if (!res.ok) throw new Error(`Notion update failed: ${res.status} ${await res.text()}`);
+  }
+  
+  function clamp(n: number, lo: number, hi: number) {
+	return Math.max(lo, Math.min(hi, n));
+  }
+
+// put near your other types
+type GeminiModel = { name: string };
+
+// --- helper: list models available to THIS key
+async function listGeminiModels(key: string): Promise<GeminiModel[]> {
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
+  if (!res.ok) throw new Error(`Gemini listModels error ${res.status}: ${await res.text()}`);
+  const data: any = await res.json();
+  const models: GeminiModel[] = (data.models || []).map((m: any) => ({ name: m.name || "" }));
+  return models;
+}
+
+// --- helper: choose best text model from the list
+function pickBestGeminiModel(models: GeminiModel[]): string | null {
+  const names = models.map(m => m.name); // e.g., "models/gemini-1.5-flash-002"
+  // Priorities (highest first)
+  const prefs = [
+    /gemini-1\.5-flash-002/i,
+    /gemini-1\.5-flash-latest/i,
+    /gemini-1\.5-flash/i,
+    /gemini-1\.5-pro-002/i,
+    /gemini-1\.5-pro-latest/i,
+    /gemini-1\.5-pro/i,
+    /gemini-1\.0-pro/i,
+    /flash/i,
+    /pro/i
+  ];
+  for (const re of prefs) {
+    const hit = names.find(n => re.test(n));
+    if (hit) return hit.replace(/^models\//, ""); // strip "models/"
+  }
+  return names[0]?.replace(/^models\//, "") || null;
+}
+
+// --- callLLM: lists models once, caches working model, then generateContent
+async function callLLM(env: Env, prompt: string): Promise<string> {
+  const provider = (env as any).LLM_PROVIDER || "openai";
+
+  if (provider === "gemini") {
+    const key = (env as any).GEMINI_API_KEY;
+    if (!key) throw new Error("Missing GEMINI_API_KEY");
+
+    // Try to use cached working model first (KV key: GEMINI_MODEL)
+    let model = await env.SEEN.get("GEMINI_MODEL"); // reuse KV
+    if (!model) {
+      const models = await listGeminiModels(key);
+      if (!models.length) throw new Error("Gemini: no models available to this key");
+      const chosen = pickBestGeminiModel(models);
+      if (!chosen) throw new Error("Gemini: could not select a model from list");
+      model = chosen; // e.g., "gemini-1.5-flash-002"
+      await env.SEEN.put("GEMINI_MODEL", model);
+      console.log("GEMINI_MODEL_SELECTED", model);
+    }
+
+    // Always use v1beta for AI Studio keys
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+    const body = {
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { temperature: 0.2 }
+    };
+
+    let res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body)
+    });
+
+    // If Google rotated the model name, clear cache and retry once
+    if (res.status === 404) {
+      await env.SEEN.delete("GEMINI_MODEL");
+      const models = await listGeminiModels(key);
+      const chosen = pickBestGeminiModel(models);
+      if (!chosen) throw new Error(`Gemini: 404 on ${model} and no fallback found`);
+      model = chosen;
+      await env.SEEN.put("GEMINI_MODEL", model);
+      const retryUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+      res = await fetch(retryUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body)
+      });
+    }
+
+    if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
+
+    const data: any = await res.json();
+    const text =
+      data?.candidates?.[0]?.content?.parts?.map((p: any) => p?.text).filter(Boolean).join("\n") ||
+      data?.candidates?.[0]?.content?.parts?.[0]?.text;
+
+    if (!text) throw new Error("Gemini returned no text");
+    return text;
+  }
+
+  // --- OpenAI fallback (requires OPENAI_API_KEY) ---
+  const key = (env as any).OPENAI_API_KEY;
+  if (!key) throw new Error("Missing OPENAI_API_KEY");
+  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${key}`
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      temperature: 0.2,
+      messages: [
+        { role: "system", content: "You are a pragmatic product manager for India-focused consumer apps. Return STRICT JSON only." },
+        { role: "user", content: prompt }
+      ]
+    })
+  });
+  if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
+  const data: any = await res.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error("OpenAI returned no text");
+  return text;
+}
+  
+  function shapeContentForLLM(p: NotionPageLite): { prompt: string } {
+	// We pass minimal info; the LLM will fetch context from the URL if you later add a web-fetch step.
+	const title = p.title || "(no title)";
+	const url = p.url || "";
+	const type = p.type || "";
+	const format = p.format || "";
+  
+	const prompt = `
+  You score news for PMs in India. Given a single item:
+  
+  TITLE: ${title}
+  URL: ${url}
+  TYPE: ${type}
+  FORMAT: ${format}
+  
+  Return STRICT JSON with keys:
+  {
+	"signal_score": 0-10 number,
+	"role_tag": "IC"|"Lead"|"VP",
+	"quick_action": "one actionable sentence",
+	"why": "3-5 lines of reasoning tailored to Indian PMs",
+	"decision_window": "<7d"|"7–30d"|">30d",
+	"affected_steps": ["Search","Browse","Signup","Checkout","Payment","Refund","Returns","Notifications","Pricing","Policy"],
+	"kpi_impact": ["Conversion","Churn","CAC","NPS","Approval","CTR","ASO","SEO"],
+	"status": "Keep"|"Archive"|"Researching"|"Draft"
+  }
+  
+  Scoring guidance:
+  - Prefer PLATFORM/RAILS changes with deadlines, enforcement, policy or distribution impact.
+  - If it's generic coverage, likely "Archive" unless it changes pricing, ranking, or rules.
+  - Decision window: if there's a deadline/enforcement within 7 days → "<7d"; within 30 days → "7–30d"; otherwise ">30d".
+  - Role tag: IC for tactical quick fixes; Lead for cross-team work; VP for strategic org/product shifts.
+  
+  Reply with JSON ONLY. No prose.
+  `.trim();
+  
+	return { prompt };
+  }
+  
+  function safeParseLLM(raw: string): any {
+	// Strip code fences if present and parse
+	const cleaned = raw.replace(/```json|```/g, "").trim();
+	try {
+	  return JSON.parse(cleaned);
+	} catch {
+	  // Try to salvage the first {...} block
+	  const m = cleaned.match(/\{[\s\S]*\}/);
+	  if (!m) throw new Error("LLM did not return JSON");
+	  return JSON.parse(m[0]);
+	}
+  }
+  
+  function mapLLMToNotion(j: any): NotionScorePayload {
+	const role = pickEnum(j.role_tag, ["IC","Lead","VP"], "IC") as "IC"|"Lead"|"VP";
+	const dw = pickEnum(j.decision_window, ["<7d","7–30d",">30d"], ">30d") as "<7d"|"7–30d"|">30d";
+	const status = pickEnum(j.status, ["Keep","Archive","Researching","Draft"], "Keep") as "Keep"|"Archive"|"Researching"|"Draft";
+  
+	const stepsAll = ["Search","Browse","Signup","Checkout","Payment","Refund","Returns","Notifications","Pricing","Policy"];
+	const kpiAll = ["Conversion","Churn","CAC","NPS","Approval","CTR","ASO","SEO"];
+  
+	const steps = Array.isArray(j.affected_steps) ? j.affected_steps.filter((x: string) => stepsAll.includes(x)) : [];
+	const kpis = Array.isArray(j.kpi_impact) ? j.kpi_impact.filter((x: string) => kpiAll.includes(x)) : [];
+  
+	const score = typeof j.signal_score === "number" ? j.signal_score : 0;
+	const qa = (j.quick_action || "").toString().slice(0, 1000);
+	const why = (j.why || "").toString().slice(0, 4000);
+  
+	return {
+	  signalScore: clamp(score, 0, 10),
+	  roleTag: role,
+	  decisionWindow: dw,
+	  status,
+	  affectedSteps: steps,
+	  kpiImpact: kpis,
+	  quickAction: qa,
+	  why
+	};
+  }
+  
+  function pickEnum<T extends string>(val: any, allowed: T[], fallback: T): T {
+	if (typeof val === "string" && allowed.includes(val as T)) return val as T;
+	return fallback;
+  }
+
+  
