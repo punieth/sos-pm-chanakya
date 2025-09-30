@@ -590,25 +590,22 @@ function orFilter(...clauses: any[]): any | undefined {
 	return { or: c };
 }
 
-// 1) Broad fetch (only simple filters)
 async function notionFetchForCompose(env: Env, batchId: string, limit: number): Promise<NotionPageLite[]> {
 	const statusKeep = { property: 'Status', select: { equals: 'Keep' } };
 	const statusResearch = { property: 'Status', select: { equals: 'Researching' } };
-
 	const eligibleByScore = { property: 'Signal Score', number: { greater_than_or_equal_to: 4 } };
 	const eligibleRails = { property: 'Type', select: { equals: 'Rails' } };
-
-	// treat "<=30d" as "not strictly >30d" (allow empty too)
 	const windowNotGT30 = { property: 'Decision Window', select: { does_not_equal: '>30d' } };
 	const windowEmpty = { property: 'Decision Window', select: { is_empty: true } };
 
-	const filter = andFilter(
-		{ property: 'Batch ID', rich_text: { contains: batchId } },
-		{ property: 'Content Fetched', checkbox: { equals: true } },
-		orFilter(statusKeep, statusResearch),
-		orFilter(eligibleByScore, eligibleRails),
-		orFilter(windowNotGT30, windowEmpty)
-	) || { property: 'Batch ID', rich_text: { contains: batchId } };
+	const filter =
+		andFilter(
+			{ property: 'Batch ID', rich_text: { contains: batchId } },
+			{ property: 'Content Fetched', checkbox: { equals: true } },
+			orFilter(statusKeep, statusResearch),
+			orFilter(eligibleByScore, eligibleRails),
+			orFilter(windowNotGT30, windowEmpty)
+		) || { property: 'Batch ID', rich_text: { contains: batchId } };
 
 	const body = {
 		filter,
@@ -634,12 +631,12 @@ async function notionFetchComposeConsider(env: Env, batchId: string): Promise<No
 	const statusKeep = { property: 'Status', select: { equals: 'Keep' } };
 	const statusResearch = { property: 'Status', select: { equals: 'Researching' } };
 
-	// Build a safe filter: no empty and/or groups
-	const filter = andFilter(
-		{ property: 'Batch ID', rich_text: { contains: batchId } },
-		{ property: 'Content Fetched', checkbox: { equals: true } },
-		orFilter(statusKeep, statusResearch)
-	) || { property: 'Batch ID', rich_text: { contains: batchId } }; // guaranteed non-empty fallback
+	const filter =
+		andFilter(
+			{ property: 'Batch ID', rich_text: { contains: batchId } },
+			{ property: 'Content Fetched', checkbox: { equals: true } },
+			orFilter(statusKeep, statusResearch)
+		) || { property: 'Batch ID', rich_text: { contains: batchId } };
 
 	const body = {
 		filter,
@@ -812,7 +809,7 @@ type DraftPost = {
 	status?: 'Proposed' | 'Ready' | 'Needs Fact';
 	citations?: string;
 	audienceTier?: 'IC' | 'Lead' | 'VP';
-	postAngle?: 'Playbook' | 'Hot take' | 'Explainer';
+	postAngle?: Array<'Playbook' | 'Hot take' | 'Explainer'>;
 	// meta from source so validator can be smarter (esp. Rails)
 	_meta?: {
 		type?: TypeName;
@@ -848,7 +845,7 @@ function composeOneFromScored(p: NotionPageLite): DraftPost {
 		status: 'Proposed',
 		citations: extractCitations(p),
 		audienceTier: p.audienceTier || 'IC',
-		postAngle: 'Explainer',
+		postAngle: ['Explainer'],
 	};
 }
 // map Type→action skeletons, always imperative + specific
@@ -949,14 +946,23 @@ async function patchDraftToNotion(env: Env, pageId: string, post: DraftPost): Pr
 	};
 	if (post.citations) props['Citations'] = textProp(post.citations);
 	if (post.audienceTier) props['Audience Tier'] = { select: { name: post.audienceTier } };
-	if (post.postAngle) props['Post Angle'] = { select: { name: post.postAngle } };
+	if (post.postAngle && post.postAngle.length) props['Post Angle'] = { multi_select: post.postAngle.map((n) => ({ name: n })) };
+	else props['Post Angle'] = { multi_select: [] };
 
 	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
 		method: 'PATCH',
 		headers: notionHeaders(env),
 		body: JSON.stringify({ properties: props }),
 	});
-	if (!res.ok) throw new Error(`Notion patch failed: ${res.status} ${await res.text()}`);
+	if (!res.ok) {
+		const body = await res.text();
+		console.error('Notion patch failed for Post Angle', {
+			status: res.status,
+			body,
+			hints: props['Post Angle'],
+		});
+		throw new Error(`Notion patch failed: ${res.status} ${body}`);
+	}
 }
 
 /** =======================
