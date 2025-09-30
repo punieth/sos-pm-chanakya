@@ -1,227 +1,105 @@
 export default {
-	async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
-		ctx.waitUntil(run(env));
+	async scheduled(_e: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+		ctx.waitUntil(orchestrate(env));
 	},
 
-	async fetch(request: Request, env: Env): Promise<Response> {
-		const url = new URL(request.url);
+	async fetch(req: Request, env: Env): Promise<Response> {
+		const url = new URL(req.url);
 
 		if (url.pathname === '/run') {
-			const details = await run(env);
-			return json(details);
+			return json(await orchestrate(env));
 		}
 
-		if (url.pathname === '/score-new') {
-			try {
-				const limit = clamp(parseInt((env as any).SCORE_BATCH_SIZE || '15', 10), 1, 50);
-				const pages = await notionFetchTodayBatch(env, limit);
-				if (!pages.length) return json({ ok: true, message: "No rows from today's batch." });
-
-				// Per-type caps so Coverage can't dominate
-				const perTypeCap: Record<string, number> = { Platform: 20, Rails: 12, Marketplace: 8, Coverage: 4, 'Long-form': 4 };
-				const counts: Record<string, number> = {};
-
-				const results: Array<{ id: string; ok: boolean; error?: string }> = [];
-				for (const p of pages) {
-					const t = p.type || 'Coverage';
-					if ((counts[t] || 0) >= (perTypeCap[t] || 0)) continue;
-					try {
-						const ctx = await getContextFor(env, p); // NEW
-						// optional: store excerpt back to Notion
-						try {
-							await fetch(`https://api.notion.com/v1/pages/${p.id}`, {
-								method: 'PATCH',
-								headers: notionHeaders(env),
-								body: JSON.stringify({
-									properties: {
-										'Source Excerpt': { rich_text: [{ text: { content: ctx.excerpt } }] },
-										'Content Fetched': { checkbox: true },
-									},
-								}),
-							});
-						} catch (e) {
-							console.warn('Failed to update excerpt for', p.id, e);
-						}
-						const shaped = shapeContentForLLM(p, env); // CHANGED
-						const llmJson = await callLLM(env, shaped.prompt);
-						const parsed = safeParseLLM(llmJson);
-						const mapped = mapLLMToNotion(parsed, p);
-						await notionUpdateScoring(env, p.id, mapped);
-						// after: await notionUpdateScoring(env, p.id, mapped);
-
-						try {
-							const parsed = safeParseLLM(llmJson);
-							const mapped = mapLLMToNotion(parsed, p);
-							await notionUpdateScoring(env, p.id, mapped);
-
-							// Compose only for strong signals
-							if (mapped.signalScore >= 6 && (mapped.status === 'Keep' || mapped.status === 'Researching')) {
-								const draft = composeLinkedInDraft(p, parsed);
-								await fetch(`https://api.notion.com/v1/pages/${p.id}`, {
-									method: 'PATCH',
-									headers: notionHeaders(env),
-									body: JSON.stringify({
-										properties: {
-											'Draft Title': { rich_text: [{ text: { content: draft.title.slice(0, 200) } }] },
-											'Draft Body': { rich_text: [{ text: { content: draft.body.slice(0, 4000) } }] },
-											'Draft Status': { select: { name: 'Proposed' } },
-										},
-									}),
-								});
-							}
-
-							results.push({ id: p.id, ok: true });
-						} catch (e: any) {
-							results.push({ id: p.id, ok: false, error: String(e?.message || e) });
-						}
-						counts[t] = (counts[t] || 0) + 1;
-						results.push({ id: p.id, ok: true });
-					} catch (e: any) {
-						results.push({ id: p.id, ok: false, error: String(e?.message || e) });
-					}
-					if (results.filter((r) => r.ok).length >= limit) break; // batch limit
-				}
-				return json({ ok: true, updated: results.filter((r) => r.ok).length, results, caps: counts });
-			} catch (e: any) {
-				return json({ ok: false, error: String(e?.message || e) }, 500);
-			}
+		// Small debug: compose one by id
+		if (url.pathname === '/compose-one') {
+			const id = url.searchParams.get('id');
+			if (!id) return json({ ok: false, error: 'missing ?id=' }, 400);
+			const page = await notionGetPageLite(env, id);
+			if (!page) return json({ ok: false, error: 'not found' }, 404);
+			const post = composeOneFromScored(page);
+			const v = validatePosts([post])[0];
+			if (!v.valid) return json({ ok: false, reason: v.reason, draft: v.post });
+			await patchDraftToNotion(env, id, v.post!);
+			return json({ ok: true, id, draft: v.post });
 		}
 
-		if (url.pathname === '/admin/kv/clear-all') {
+		// Admin: clear ALL KV keys (protect with token)
+		if (url.pathname === '/clear-all') {
+			const token = url.searchParams.get('token') || '';
+
 			const deleted = await clearAllKV(env.SEEN);
 			return json({ ok: true, deleted });
 		}
 
 		if (url.pathname === '/health') return new Response('OK');
-
-		if (url.pathname === '/debug/gemini-models') {
-			const key = (env as any).GEMINI_API_KEY;
-			if (!key) return json({ ok: false, error: 'Missing GEMINI_API_KEY' }, 400);
-			const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-			const data = await res.json();
-			return json({
-				ok: true,
-				cached: await env.SEEN.get('GEMINI_MODEL'),
-				forced: (env as any).GEMINI_MODEL_FORCE || null,
-				available: (data.models || []).map((m: any) => m.name?.replace(/^models\//, '')),
-			});
-		}
-
-		if (url.pathname === '/compose') {
-			try {
-				const limit = clamp(parseInt((env as any).COMPOSE_BATCH_SIZE || '6', 10), 1, 20);
-				const pages = await notionFetchForCompose(env, limit);
-				if (!pages.length) return json({ ok: true, message: 'No rows qualify for compose.' });
-
-				const results: Array<{ id: string; ok: boolean; error?: string }> = [];
-				for (const p of pages) {
-					try {
-						const ctx = await getContextFor(env, p); // NEW
-						const { prompt } = shapeComposePrompt(p, ctx.summary); // CHANGED
-						const raw = await callLLM(env, prompt);
-						const out = safeParseLLM(raw);
-						await notionUpdateDraft(env, p.id, mapComposeToNotion(out, p));
-						results.push({ id: p.id, ok: true });
-					} catch (e: any) {
-						results.push({ id: p.id, ok: false, error: String(e?.message || e) });
-					}
-				}
-				return json({ ok: true, composed: results.filter((r) => r.ok).length, results });
-			} catch (e: any) {
-				return json({ ok: false, error: String(e?.message || e) }, 500);
-			}
-		}
-
-		if (url.pathname === '/enrich') {
-			try {
-				const limit = 20;
-				const pages = await notionFetchTodayBatch(env, limit); // reuse your today-batch selector
-				const results: Array<{ id: string; ok: boolean; error?: string }> = [];
-				for (const p of pages) {
-					if (!p.url) {
-						results.push({ id: p.id, ok: false, error: 'no URL' });
-						continue;
-					}
-					try {
-						const ctx = await fetchUrlContext(p.url);
-						if (!ctx) {
-							results.push({ id: p.id, ok: false, error: 'no ctx' });
-							continue;
-						}
-						await notionPatchContext(env, p.id, ctx);
-						results.push({ id: p.id, ok: true });
-					} catch (e: any) {
-						results.push({ id: p.id, ok: false, error: String(e?.message || e) });
-					}
-				}
-				return json({ ok: true, enriched: results.filter((r) => r.ok).length, results });
-			} catch (e: any) {
-				return json({ ok: false, error: String(e?.message || e) }, 500);
-			}
-		}
-
-		return new Response('OK\nUse /run then /score-new', { status: 200 });
+		return new Response('OK\nUse /run', { status: 200 });
 	},
 };
 
-// ---------- Config ----------
+/** =======================
+ * Config & Types
+ * ======================= */
 const MAX_AGE_DAYS = 90;
 
-// Per-Type targets (how many to ingest per run)
+// Target intake per Type (per run)
 const TARGET_PER_TYPE: Record<TypeName, number> = {
-	Platform: 3,
-	Rails: 2,
+	Platform: 2,
+	Rails: 6,
 	Marketplace: 2,
-	Coverage: 1,
+	Coverage: 4,
 	'Long-form': 1,
 };
 
-// Typed registry of feeds
+type TypeName = 'Platform' | 'Rails' | 'Marketplace' | 'Coverage' | 'Long-form';
+type FormatName = 'Short-form' | 'Long-form';
+
 type FeedCfg = { url: string; type: TypeName; source?: string; cap?: number };
+
 const REGISTRY: FeedCfg[] = [
-	// Platform
+	// Platform (keep a few)
 	{ url: 'https://developer.apple.com/news/rss/news.rss', type: 'Platform', source: 'Apple Dev News', cap: 2 },
 	{ url: 'https://android-developers.googleblog.com/feeds/posts/default?alt=rss', type: 'Platform', source: 'Android Dev Blog', cap: 2 },
 	{ url: 'https://blog.youtube/news/rss/', type: 'Platform', source: 'YouTube Blog', cap: 1 },
-	{ url: 'https://telegram.org/blog?rss', type: 'Platform', source: 'Telegram', cap: 1 },
 
-	// Rails (IN policy/infra)
-	{ url: 'https://www.trai.gov.in/taxonomy/term/19/feed', type: 'Rails', source: 'TRAI', cap: 2 },
-	// (MeitY/MCA/CERT-In RSS is inconsistent; add later via HTML extractor if needed)
-	{ url: 'https://www.npci.org.in/whats-new/press-releases/rss', type: 'Rails', source: 'NPCI', cap: 1 },
+	// Rails / Indian policy & infra
+	{ url: 'https://www.trai.gov.in/taxonomy/term/19/feed', type: 'Rails', source: 'TRAI', cap: 3 },
+	{ url: 'https://www.npci.org.in/whats-new/press-releases/rss', type: 'Rails', source: 'NPCI', cap: 2 },
+	{ url: 'https://pib.gov.in/RssFeeds/TopNewsRSS.aspx', type: 'Rails', source: 'PIB (Top News)', cap: 2 },
+	{ url: 'https://pib.gov.in/RssFeeds/RssFeed_1.aspx', type: 'Rails', source: 'PIB (Releases)', cap: 2 },
+	{ url: 'https://www.meity.gov.in/news-rss', type: 'Rails', source: 'MeitY', cap: 2 },
+	{ url: 'https://cert-in.org.in/RssFeeds/AdvisoryRSS.xml', type: 'Rails', source: 'CERT-In Advisories', cap: 2 },
+	{ url: 'https://www.rbi.org.in/Rss/PressReleases.xml', type: 'Rails', source: 'RBI Press', cap: 2 },
+	{ url: 'https://www.sebi.gov.in/sebiweb/rss/MediaRSS.do', type: 'Rails', source: 'SEBI Media', cap: 2 },
+	{ url: 'https://www.ondc.org/blog/feed/', type: 'Rails', source: 'ONDC Blog', cap: 1 },
+	{ url: 'https://www.uidai.gov.in/en/component/obrss/press-releases?format=raw', type: 'Rails', source: 'UIDAI Press', cap: 1 },
 
-	// Marketplace
+	// Marketplace / Ecosystem ops
 	{ url: 'https://sellercentral.amazon.in/forums/c/announcements/7.rss', type: 'Marketplace', source: 'Amazon IN', cap: 1 },
-	// (Flipkart seller RSS is not always reachable publicly; add if stable)
+	{ url: 'https://razorpay.com/blog/rss.xml', type: 'Marketplace', source: 'Razorpay Blog', cap: 1 },
+	{ url: 'https://paytm.com/blog/feed/', type: 'Marketplace', source: 'Paytm Blog', cap: 1 },
 
-	// Coverage
-	{ url: 'https://www.medianama.com/feed/', type: 'Coverage', source: 'Medianama', cap: 1 },
-	{ url: 'https://inc42.com/feed/', type: 'Coverage', source: 'Inc42', cap: 1 },
-
-	// Long-form (kept tiny)
-	// Add reliable long-form with RSS later; leaving empty avoids noise for now
+	// Coverage (curated India tech/policy coverage)
+	{ url: 'https://www.medianama.com/feed/', type: 'Coverage', source: 'Medianama', cap: 2 },
+	{ url: 'https://inc42.com/feed/', type: 'Coverage', source: 'Inc42', cap: 2 },
+	{ url: 'https://the-ken.com/feed/', type: 'Coverage', source: 'The Ken', cap: 1 },
+	{ url: 'https://www.moneycontrol.com/rss/technology.xml', type: 'Coverage', source: 'Moneycontrol Tech', cap: 1 },
+	{ url: 'https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms', type: 'Coverage', source: 'ET Tech', cap: 1 },
 ];
 
-// ---------- Types ----------
 interface Env {
 	SEEN: KVNamespace;
 	NOTION_TOKEN: string;
 	NOTION_DATABASE_ID: string;
-	ADMIN_TOKEN?: string;
 
-	// LLM env
-	LLM_PROVIDER?: string;
+	// LLM
+	LLM_PROVIDER?: string; // default: "gemini"
 	GEMINI_API_KEY?: string;
-	GEMINI_MODEL_FORCE?: string;
-	OPENAI_API_KEY?: string;
+	GEMINI_MODEL_FORCE?: string; // e.g., "gemini-2.0-flash-lite"
+	LLM_MAX_OUTPUT_TOKENS?: string; // default 512
+	DAILY_LLM_LIMIT?: string; // default 200
 
-	SCORE_BATCH_SIZE?: string;
-	DAILY_LLM_LIMIT?: string;
-	LLM_MAX_OUTPUT_TOKENS?: string;
+	SCORE_BATCH_SIZE?: string; // default 15
 }
-
-type TypeName = 'Platform' | 'Rails' | 'Marketplace' | 'Coverage' | 'Long-form';
-type FormatName = 'Short-form' | 'Long-form';
 
 type FeedItem = { title: string; link: string; pubDate?: string };
 
@@ -234,25 +112,308 @@ type FeedStats = {
 	samples: string[];
 };
 
-type RunResult = {
-	totals: { scanned: number; created: number; skippedSeen: number; skippedNoise: number; skippedOld: number };
-	types: Record<TypeName, { created: number }>;
-	feeds: Record<string, FeedStats>;
+type StageReport<T = any> = {
+	attempted: number;
+	ok: number;
+	failed: number;
+	items: Array<{ id?: string; title?: string; url?: string; ok: boolean; error?: string; extra?: T }>;
 };
 
-// ---------- RUNNER (Stage 1: ingest newest-per-type) ----------
-async function run(env: Env): Promise<RunResult> {
-	const today = new Date();
-	const batchId = today.toISOString().slice(0, 10); // YYYY-MM-DD
+type ComposeConsider = {
+	id: string;
+	title?: string;
+	type?: TypeName;
+	score?: number;
+	window?: NotionPageLite['decisionWindow'];
+};
+type ComposeSkipped = ComposeConsider & { reasons: string[] };
 
-	// init per-type counters
-	const createdPerType: Record<TypeName, number> = {
-		Platform: 0,
-		Rails: 0,
-		Marketplace: 0,
-		Coverage: 0,
-		'Long-form': 0,
+type OrchestrateResult = {
+	ok: boolean;
+	batchId: string;
+	startedAt: string;
+	ingest: {
+		totals: { scanned: number; created: number; skippedSeen: number; skippedNoise: number; skippedOld: number };
+		types: Record<TypeName, number>;
+		feeds: Record<string, FeedStats>;
 	};
+	enrich: StageReport<{ excerpt?: string }>;
+	score: { attempted: number; updated: number; llmCalls: number; results: Array<{ id: string; ok: boolean; error?: string }> };
+	compose: StageReport<{ status?: string; preview?: string }>;
+	composeDebug: {
+		considered: Array<{
+			id: string;
+			title?: string;
+			type?: TypeName;
+			score: number | null;
+			window: NotionPageLite['decisionWindow'] | null;
+		}>;
+		skipped: Array<{
+			id: string;
+			title?: string;
+			type?: TypeName;
+			score: number | null;
+			window: NotionPageLite['decisionWindow'] | null;
+			reasons: string[];
+		}>;
+	};
+	validate: { attempted: number; passed: number; failed: number; details: Array<{ id: string; valid: boolean; reason?: string }> };
+	patch: StageReport;
+	notes?: string;
+};
+
+/** =======================
+ * Orchestrator
+ * ======================= */
+async function clearAllKV(ns: KVNamespace): Promise<number> {
+	let count = 0;
+	let cursor: string | undefined = undefined;
+	do {
+		const list = await ns.list({ cursor, limit: 1000 });
+		if (list.keys.length === 0) break;
+		await Promise.all(list.keys.map((k) => ns.delete(k.name)));
+		count += list.keys.length;
+		cursor = list.list_complete ? undefined : list.cursor;
+	} while (cursor);
+	return count;
+}
+
+// —— India policy-ish detector for Coverage
+const INDIA_KEYWORDS = [
+	'rbi',
+	'pss act',
+	'upi',
+	'npci',
+	'meity',
+	'trai',
+	'dot',
+	'telecommunications act',
+	'sebi',
+	'mca',
+	'mha',
+	'it rules',
+	'data protection',
+	'dpdp',
+	'digital personal data',
+	'gst council',
+	'income tax',
+	'fema',
+	'ed ',
+	'enforcement directorate',
+	'dppi',
+	'privacy bill',
+	'pricing cap',
+	'price cap',
+	'interchange',
+	'kyd',
+	'kyc',
+	'kyb',
+	'consent manager',
+	'ocen',
+	'account aggregator',
+];
+
+async function orchestrate(env: Env): Promise<OrchestrateResult> {
+	const startedAt = new Date().toISOString();
+	const batchId = startedAt.slice(0, 10);
+
+	// 1) Ingest newest items by type
+	const ingestRes = await ingestNewest(env);
+
+	// 2) Enrich: fetch source content → Source Excerpt + Content Fetched
+	const createdIds = await notionFetchTodayIds(env, batchId);
+	const enrichReport: StageReport<{ excerpt?: string }> = { attempted: createdIds.length, ok: 0, failed: 0, items: [] };
+
+	for (const id of createdIds) {
+		try {
+			const lite = await notionGetPageLite(env, id);
+			if (!lite?.url) {
+				enrichReport.items.push({ id, ok: false, error: 'No URL' });
+				enrichReport.failed++;
+				continue;
+			}
+			const { excerpt } = await fetchExcerpt(lite.url);
+			await notionPatch(env, id, {
+				'Source Excerpt': textProp(excerpt || '(no excerpt)'),
+				'Content Fetched': { checkbox: true },
+			});
+			enrichReport.items.push({ id, title: lite.title, url: lite.url, ok: true, extra: { excerpt } });
+			enrichReport.ok++;
+		} catch (e: any) {
+			enrichReport.items.push({ id, ok: false, error: String(e?.message || e) });
+			enrichReport.failed++;
+		}
+	}
+
+	// 3) Score: only unscored items from today’s batch
+	const scoreLimit = clamp(parseInt(env.SCORE_BATCH_SIZE || '15', 10), 1, 50);
+	const pagesToScore = await notionFetchUnscoredToday(env, batchId, scoreLimit);
+	const scoreResults: Array<{ id: string; ok: boolean; error?: string }> = [];
+	let llmCalls = 0;
+
+	for (const p of pagesToScore) {
+		try {
+			const shaped = shapeForScoring(p);
+			const raw = await callLLM(env, shaped);
+			llmCalls++;
+			const parsed = safeParseLLM(raw);
+			await notionUpdateScoring(env, p.id, mapLLMToNotion(parsed, p));
+			scoreResults.push({ id: p.id, ok: true });
+		} catch (e: any) {
+			scoreResults.push({ id: p.id, ok: false, error: String(e?.message || e) });
+		}
+	}
+
+	// 4) Compose: decide candidates, say why some were skipped, draft a few
+	// broad pool (Content Fetched + Status in {Keep, Researching})
+	// 4) Compose: decide candidates, say why some were skipped, draft a few
+	const consider = await notionFetchComposeConsider(env, batchId);
+
+	// Looser pool: score >=4 OR Rails (if fetched)
+	const toComposeStrict = await notionFetchForCompose(env, batchId, 6);
+
+	// Add India-policyish Coverage (score≥4, timely)
+	const extraPolicyish = consider
+		.filter(
+			(p) =>
+				p.type === 'Coverage' &&
+				isIndiaPolicyish(p) &&
+				(p.signalScore ?? 0) >= 4 &&
+				p.decisionWindow &&
+				p.decisionWindow !== '>30d' &&
+				!toComposeStrict.find((t) => t.id === p.id)
+		)
+		.slice(0, Math.max(0, 6 - toComposeStrict.length));
+
+	const composeCandidates = [...toComposeStrict, ...extraPolicyish];
+
+	// Track skipped
+	const skipped: Array<{
+		id: string;
+		title?: string;
+		type?: TypeName;
+		score: number | null;
+		window: NotionPageLite['decisionWindow'] | null;
+		reasons: string[];
+	}> = [];
+	for (const c of consider) {
+		if (!composeCandidates.find((t) => t.id === c.id)) {
+			const reasons: string[] = [];
+			if ((c.signalScore ?? 0) < 4) reasons.push('score<4');
+			if (!c.decisionWindow || c.decisionWindow === '>30d') reasons.push('window>30d/unknown');
+			if (c.type === 'Coverage' && !isIndiaRelevant(c.excerpt || '')) reasons.push('Coverage not India-relevant');
+			skipped.push({
+				id: c.id,
+				title: c.title,
+				type: c.type,
+				score: c.signalScore ?? null,
+				window: c.decisionWindow ?? null,
+				reasons,
+			});
+		}
+	}
+
+	// Actually compose drafts
+	const composeReport: StageReport<{ status?: string; preview?: string }> = {
+		attempted: composeCandidates.length,
+		ok: 0,
+		failed: 0,
+		items: [],
+	};
+	const drafts: DraftPost[] = [];
+
+	for (const p of composeCandidates) {
+		try {
+			if (p.type === 'Coverage' && !isIndiaRelevant(p.excerpt || '')) {
+				composeReport.items.push({ id: p.id, title: p.title, url: p.url, ok: false, error: 'Coverage not India-relevant' });
+				composeReport.failed++;
+				continue;
+			}
+			const draft = composeOneFromScored(p);
+			drafts.push(draft);
+			composeReport.items.push({
+				id: p.id,
+				title: p.title,
+				url: p.url,
+				ok: true,
+				extra: { status: 'composed', preview: (draft.body || '').slice(0, 180) },
+			});
+			composeReport.ok++;
+		} catch (e: any) {
+			composeReport.items.push({ id: p.id, title: p.title, url: p.url, ok: false, error: String(e?.message || e) });
+			composeReport.failed++;
+		}
+	}
+
+	// 5) Validate drafts (SOFT): we *still patch* even if they fail, but mark Needs Fact
+	const validationResults = validatePosts(drafts); // {id, valid, reason?, post?}
+	const passed = validationResults.filter((v) => v.valid);
+	const failed = validationResults.filter((v) => !v.valid);
+
+	// Mark failures on the row so you see why, and set status to Needs Fact
+	for (const f of failed) {
+		try {
+			await notionPatch(env, f.id, {
+				'Draft Status': { select: { name: 'Needs Fact' } },
+				'Reviewers Notes': textProp(`Validator: ${f.reason || 'unknown'}`),
+			});
+		} catch {}
+	}
+
+	// 6) Patch drafts back to Notion — BOTH passed and failed (failed as Needs Fact)
+	const patchReport: StageReport = { attempted: validationResults.length, ok: 0, failed: 0, items: [] };
+	for (const v of validationResults) {
+		try {
+			const post = v.post!;
+			post.status = v.valid ? post.status || 'Proposed' : 'Needs Fact';
+			await patchDraftToNotion(env, v.id, post);
+			patchReport.items.push({ id: v.id, ok: true });
+			patchReport.ok++;
+		} catch (e: any) {
+			patchReport.items.push({ id: v.id, ok: false, error: String(e?.message || e) });
+			patchReport.failed++;
+		}
+	}
+
+	return {
+		ok: true,
+		batchId,
+		startedAt,
+		ingest: ingestRes,
+		enrich: enrichReport,
+		score: { attempted: pagesToScore.length, updated: scoreResults.filter((r) => r.ok).length, llmCalls, results: scoreResults },
+		compose: composeReport,
+		composeDebug: {
+			considered: consider.map((c) => ({
+				id: c.id,
+				title: c.title,
+				type: c.type,
+				score: c.signalScore ?? null,
+				window: c.decisionWindow ?? null,
+			})),
+			skipped,
+		},
+		validate: {
+			attempted: validationResults.length,
+			passed: passed.length,
+			failed: failed.length,
+			details: validationResults.map((v) => ({ id: v.id, valid: v.valid, reason: v.reason })),
+		},
+		patch: patchReport,
+		notes: 'End-to-end run (soft validation; always patch drafts)',
+	};
+}
+
+/** =======================
+ * Ingest stage
+ * ======================= */
+async function ingestNewest(env: Env) {
+	const today = new Date();
+	const batchId = today.toISOString().slice(0, 10);
+	const perTypeCreated: Record<TypeName, number> = { Platform: 0, Rails: 0, Marketplace: 0, Coverage: 0, 'Long-form': 0 };
+
+	const byType: Record<TypeName, FeedCfg[]> = { Platform: [], Rails: [], Marketplace: [], Coverage: [], 'Long-form': [] };
+	for (const f of REGISTRY) byType[f.type].push(f);
 
 	const feedsOut: Record<string, FeedStats> = {};
 	let T_scanned = 0,
@@ -261,24 +422,12 @@ async function run(env: Env): Promise<RunResult> {
 		T_noise = 0,
 		T_old = 0;
 
-	// Process feeds grouped by type to enforce per-type TARGETs
-	const byType: Record<TypeName, FeedCfg[]> = {
-		Platform: [],
-		Rails: [],
-		Marketplace: [],
-		Coverage: [],
-		'Long-form': [],
-	};
-	for (const f of REGISTRY) byType[f.type].push(f);
-
 	for (const type of Object.keys(byType) as TypeName[]) {
-		if (!byType[type].length) continue;
 		const target = TARGET_PER_TYPE[type] || 0;
-		if (target <= 0) continue;
+		if (!target) continue;
 
 		for (const cfg of byType[type]) {
-			if (createdPerType[type] >= target) break;
-
+			if (perTypeCreated[type] >= target) break;
 			const feed = normalizeFeedUrl(cfg.url);
 			let scanned = 0,
 				created = 0,
@@ -294,57 +443,51 @@ async function run(env: Env): Promise<RunResult> {
 			}
 
 			const items = parseFeed(xml).sort((a, b) => (Date.parse(b.pubDate || '') || 0) - (Date.parse(a.pubDate || '') || 0));
-
-			// take up to cfg.cap for this feed, but also stop if hitting per-type target
 			const perFeedCap = Math.max(1, Math.min(cfg.cap || 2, 5));
-			for (const item of items) {
+
+			for (const it of items) {
 				if (created >= perFeedCap) break;
-				if (createdPerType[type] >= target) break;
+				if (perTypeCreated[type] >= target) break;
 
 				scanned++;
-				if (samples.length < 3) samples.push(item.title || '(no title)');
-				if (!item.link) continue;
+				if (samples.length < 3) samples.push(it.title || '(no title)');
+				if (!it.link) continue;
 
-				const cls = classifyItem(item.title);
+				const cls = classifyItem(it.title);
 				if (cls === 'Noise') {
 					skippedNoise++;
 					continue;
 				}
 
-				const publishedAt = normalizeDate(item.pubDate);
+				const publishedAt = normalizeDate(it.pubDate);
 				if (isTooOld(publishedAt)) {
 					skippedOld++;
 					continue;
 				}
 
-				const key = `v3:${type}:${hash(item.link)}`;
-				const seen = await env.SEEN.get(key);
-				if (seen) {
+				const key = `v3:${type}:${hash(it.link)}`;
+				if (await env.SEEN.get(key)) {
 					skippedSeen++;
 					continue;
 				}
 
 				try {
-					// use the declared feed type as baseline
-					let type0: TypeName = cls === 'Long-form' ? 'Long-form' : cfg.type;
-
-					// allow override if the title clearly signals regulator
-					const type = coerceTypeByTitle(type0, item.title);
 					await createNotionPage(env, {
 						sourceName: cfg.source || guessSourceName(feed),
-						url: item.link,
+						url: it.link,
 						type,
 						format: cls === 'Long-form' ? 'Long-form' : 'Short-form',
 						publishedAt,
 						importedAt: today.toISOString(),
 						batchId,
 					});
-					await env.SEEN.put(key, '1', { expirationTtl: 60 * 60 * 24 * 180 }); // 180 days
+					await env.SEEN.put(key, '1', { expirationTtl: 60 * 60 * 24 * 180 });
 					created++;
-					createdPerType[type]++;
+					perTypeCreated[type]++;
 					T_created++;
 				} catch (e) {
-					console.error('NOTION_ERR', feed, item.title, e);
+					const msg = String(e?.message || e);
+					samples.push(`ERR: ${msg.slice(0, 180)}`);
 				}
 			}
 
@@ -353,77 +496,130 @@ async function run(env: Env): Promise<RunResult> {
 			T_seen += skippedSeen;
 			T_noise += skippedNoise;
 			T_old += skippedOld;
-			if (createdPerType[type] >= target) break;
+			if (perTypeCreated[type] >= target) break;
 		}
 	}
 
-	const total = { scanned: T_scanned, created: T_created, skippedSeen: T_seen, skippedNoise: T_noise, skippedOld: T_old };
-	return { totals: total, types: createdPerType, feeds: feedsOut };
+	return {
+		totals: { scanned: T_scanned, created: T_created, skippedSeen: T_seen, skippedNoise: T_noise, skippedOld: T_old },
+		types: perTypeCreated,
+		feeds: feedsOut,
+	};
 }
 
-// ---------- Notion (Stage 2: score today's batch only) ----------
+/** =======================
+ * Enrich helpers
+ * ======================= */
+async function notionFetchTodayIds(env: Env, batchId: string): Promise<string[]> {
+	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
+		method: 'POST',
+		headers: notionHeaders(env),
+		body: JSON.stringify({
+			filter: { property: 'Batch ID', rich_text: { contains: batchId } },
+			sorts: [{ property: 'Published At', direction: 'descending' }],
+			page_size: 50,
+		}),
+	});
+	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
+	const data = await res.json();
+	return (data.results || []).map((r: any) => r.id);
+}
+
+async function fetchExcerpt(url: string): Promise<{ excerpt: string }> {
+	const txt = await safeGet(url);
+	if (!txt) return { excerpt: '' };
+	const cleaned = stripTags(txt).replace(/\s+/g, ' ').trim();
+	return { excerpt: cleaned.slice(0, 1400) };
+}
+
+/** =======================
+ * Scoring helpers
+ * ======================= */
 type NotionPageLite = {
 	id: string;
 	url?: string;
-	title?: string; // Source Name
-	sourceName?: string;
+	title?: string;
 	type?: TypeName;
 	format?: FormatName;
+	why?: string;
+	quickAction?: string;
+	signalScore?: number;
+	decisionWindow?: '<7d' | '7–30d' | '>30d';
+	audienceTier?: 'IC' | 'Lead' | 'VP';
 	excerpt?: string;
+	affectedSteps?: string[];
+	kpiImpact?: string[];
 };
 
-async function notionFetchTodayBatch(env: Env, limit: number): Promise<NotionPageLite[]> {
-	const today = new Date().toISOString().slice(0, 10);
-
-	const sorts = [
-		{ property: 'Type', direction: 'ascending' as const }, // deterministic
-		{ property: 'Published At', direction: 'descending' as const },
-		{ property: 'Last Checked', direction: 'descending' as const },
-	];
-
-	// 1) Platform + Rails from today's batch, unscored
-	const prioReq = {
-		filter: {
-			and: [
-				{ property: 'Batch ID', rich_text: { contains: today } },
-				{ property: 'Signal Score', number: { is_empty: true } },
-				{
-					or: [
-						{ property: 'Type', select: { equals: 'Platform' } },
-						{ property: 'Type', select: { equals: 'Rails' } },
-					],
-				},
+async function notionFetchUnscoredToday(env: Env, batchId: string, limit: number): Promise<NotionPageLite[]> {
+	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
+		method: 'POST',
+		headers: notionHeaders(env),
+		body: JSON.stringify({
+			filter: {
+				and: [
+					{ property: 'Batch ID', rich_text: { contains: batchId } },
+					{ property: 'Signal Score', number: { is_empty: true } },
+				],
+			},
+			sorts: [
+				{ property: 'Type', direction: 'ascending' },
+				{ property: 'Published At', direction: 'descending' },
 			],
-		},
-		sorts,
-		page_size: Math.min(limit, 25),
-	};
-	const top = await notionQuery(env, prioReq);
-	if (top.length >= limit) return top.slice(0, limit);
-
-	// 2) Everything else from today's batch, unscored
-	const restReq = {
-		filter: {
-			and: [
-				{ property: 'Batch ID', rich_text: { contains: today } },
-				{ property: 'Signal Score', number: { is_empty: true } },
-				{
-					and: [
-						{ property: 'Type', select: { does_not_equal: 'Platform' } },
-						{ property: 'Type', select: { does_not_equal: 'Rails' } },
-					],
-				},
-			],
-		},
-		sorts,
-		page_size: Math.min(limit - top.length, 25),
-	};
-	const rest = await notionQuery(env, restReq);
-
-	return [...top, ...rest].slice(0, limit);
+			page_size: Math.min(limit, 25),
+		}),
+	});
+	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
+	const data = await res.json();
+	return mapResultsToLite(data.results);
 }
 
-async function notionQuery(env: Env, body: any): Promise<NotionPageLite[]> {
+function nz<T>(x: T | undefined | null): x is T {
+	return x !== undefined && x !== null;
+}
+function andFilter(...clauses: any[]): any | undefined {
+	const c = clauses.filter(nz);
+	if (c.length === 0) return undefined;
+	if (c.length === 1) return c[0];
+	return { and: c };
+}
+function orFilter(...clauses: any[]): any | undefined {
+	const c = clauses.filter(nz);
+	if (c.length === 0) return undefined;
+	if (c.length === 1) return c[0];
+	return { or: c };
+}
+
+// 1) Broad fetch (only simple filters)
+async function notionFetchForCompose(env: Env, batchId: string, limit: number): Promise<NotionPageLite[]> {
+	const statusKeep = { property: 'Status', select: { equals: 'Keep' } };
+	const statusResearch = { property: 'Status', select: { equals: 'Researching' } };
+
+	const eligibleByScore = { property: 'Signal Score', number: { greater_than_or_equal_to: 4 } };
+	const eligibleRails = { property: 'Type', select: { equals: 'Rails' } };
+
+	// treat "<=30d" as "not strictly >30d" (allow empty too)
+	const windowNotGT30 = { property: 'Decision Window', select: { does_not_equal: '>30d' } };
+	const windowEmpty = { property: 'Decision Window', select: { is_empty: true } };
+
+	const filter = andFilter(
+		{ property: 'Batch ID', rich_text: { contains: batchId } },
+		{ property: 'Content Fetched', checkbox: { equals: true } },
+		orFilter(statusKeep, statusResearch),
+		orFilter(eligibleByScore, eligibleRails),
+		orFilter(windowNotGT30, windowEmpty)
+	) || { property: 'Batch ID', rich_text: { contains: batchId } };
+
+	const body = {
+		filter,
+		sorts: [
+			{ property: 'Signal Score', direction: 'descending' as const },
+			{ property: 'Type', direction: 'ascending' as const },
+			{ property: 'Published At', direction: 'descending' as const },
+		],
+		page_size: Math.min(limit, 10),
+	};
+
 	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
 		method: 'POST',
 		headers: notionHeaders(env),
@@ -431,139 +627,516 @@ async function notionQuery(env: Env, body: any): Promise<NotionPageLite[]> {
 	});
 	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
 	const data = await res.json();
-	const pages: NotionPageLite[] = [];
-	for (const r of data.results || []) {
-		const p = r.properties || {};
-		const type = p['Type']?.select?.name as TypeName | undefined;
-		const format = p['Format']?.select?.name as FormatName | undefined;
-		const title = extractTitle(p['Source Name']);
-		pages.push({
-			id: r.id,
-			url: p['URL']?.url,
-			title,
-			sourceName: title,
-			type,
-			format,
-			excerpt:
-				(p['Source Excerpt']?.rich_text || p['Source Excerpt']?.text || [])
-					.map((t: any) => t.plain_text || t.text?.content)
-					.filter(Boolean)
-					.join(' ')
-					.slice(0, 1200) || undefined,
-		});
-	}
-	return pages;
+	return mapResultsToLite(data.results);
 }
 
-// ---------- KV utilities ----------
-async function clearAllKV(ns: KVNamespace): Promise<number> {
-	let count = 0;
-	let cursor: string | undefined = undefined;
-	do {
-		const list = await ns.list({ cursor, limit: 1000 });
-		if (list.keys.length === 0) break;
-		await Promise.all(list.keys.map((k) => ns.delete(k.name)));
-		count += list.keys.length;
-		cursor = list.list_complete ? undefined : list.cursor;
-	} while (cursor);
-	return count;
-}
+async function notionFetchComposeConsider(env: Env, batchId: string): Promise<NotionPageLite[]> {
+	const statusKeep = { property: 'Status', select: { equals: 'Keep' } };
+	const statusResearch = { property: 'Status', select: { equals: 'Researching' } };
 
-// ---------- HTTP helpers ----------
-function json(data: unknown, status = 200): Response {
-	return new Response(JSON.stringify(data, null, 2), {
-		status,
-		headers: { 'content-type': 'application/json' },
+	// Build a safe filter: no empty and/or groups
+	const filter = andFilter(
+		{ property: 'Batch ID', rich_text: { contains: batchId } },
+		{ property: 'Content Fetched', checkbox: { equals: true } },
+		orFilter(statusKeep, statusResearch)
+	) || { property: 'Batch ID', rich_text: { contains: batchId } }; // guaranteed non-empty fallback
+
+	const body = {
+		filter,
+		sorts: [
+			{ property: 'Published At', direction: 'descending' as const },
+			{ property: 'Type', direction: 'ascending' as const },
+		],
+		page_size: 50,
+	};
+
+	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
+		method: 'POST',
+		headers: notionHeaders(env),
+		body: JSON.stringify(body),
 	});
+	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
+	const data = await res.json();
+	return mapResultsToLite(data.results);
 }
 
-// ---------- Networking ----------
+async function notionGetPageLite(env: Env, id: string): Promise<NotionPageLite | null> {
+	const res = await fetch(`https://api.notion.com/v1/pages/${id}`, { headers: notionHeaders(env) });
+	if (!res.ok) return null;
+	const r = await res.json();
+	return mapOneToLite(r);
+}
+
+function mapResultsToLite(results: any[]): NotionPageLite[] {
+	return (results || []).map(mapOneToLite).filter(Boolean) as NotionPageLite[];
+}
+
+function mapOneToLite(r: any): NotionPageLite {
+	const p = r.properties || {};
+	const title = extractTitle(p['Source Name']);
+	const url = p['URL']?.url;
+	const type = p['Type']?.select?.name as TypeName | undefined;
+	const format = p['Format']?.select?.name as FormatName | undefined;
+	const score = p['Signal Score']?.number;
+	const dw = p['Decision Window']?.select?.name as any;
+	const role = p['Role Tag']?.select?.name as any;
+	const why = extractText(p['Why']);
+	const qa = extractText(p['Quick Action']);
+	const excerpt = extractText(p['Source Excerpt']);
+	const affectedSteps = Array.isArray(p['Affected Steps']?.multi_select)
+		? p['Affected Steps'].multi_select.map((x: any) => x?.name).filter(Boolean)
+		: [];
+	const kpiImpact = Array.isArray(p['KPI Impact']?.multi_select)
+		? p['KPI Impact'].multi_select.map((x: any) => x?.name).filter(Boolean)
+		: [];
+
+	return {
+		id: r.id,
+		url,
+		title,
+		type,
+		format,
+		why,
+		quickAction: qa,
+		signalScore: score,
+		decisionWindow: dw,
+		audienceTier: role,
+		excerpt,
+		affectedSteps,
+		kpiImpact,
+	};
+}
+
+function shapeForScoring(p: NotionPageLite): string {
+	const t = p.title || '(no title)';
+	const u = p.url || '';
+	const type = p.type || '';
+	const fmt = p.format || '';
+	return `
+  You are scoring news for Indian PMs. Input:
+  TITLE: ${t}
+  URL: ${u}
+  TYPE: ${type}
+  FORMAT: ${fmt}
+  
+  Return STRICT JSON:
+  {
+	"signal_score": 0-10 number,
+	"role_tag": "IC"|"Lead"|"VP",
+	"quick_action": "one imperative sentence <= 100 chars",
+	"why": "2-4 lines in plain English (no jargon), India context if relevant",
+	"decision_window": "<7d"|"7–30d"|">30d",
+	"affected_steps": ["Search","Browse","Signup","Checkout","Payment","Refund","Returns","Notifications","Pricing","Policy"],
+	"kpi_impact": ["Conversion","Churn","CAC","NPS","Approval","CTR","ASO","SEO"],
+	"status": "Keep"|"Archive"|"Researching"|"Draft"
+  }
+  
+  Rules:
+  - Prefer PLATFORM/RAILS with policy/pricing/distribution/enforcement.
+  - COVERAGE without clear rule → likely Archive 0–3.
+  - Quick action must be <=100 chars and start with a verb.
+  JSON only.
+	`.trim();
+}
+
+async function notionUpdateScoring(env: Env, pageId: string, s: NotionScorePayload): Promise<void> {
+	const props: any = {
+		'Signal Score': { number: clamp(+s.signalScore, 0, 10) },
+		'Role Tag': { select: { name: s.roleTag } },
+		'Quick Action': textProp(s.quickAction || ''),
+		Why: textProp(s.why || ''),
+		'Decision Window': { select: { name: s.decisionWindow } },
+		'Affected Steps': { multi_select: s.affectedSteps.map((n) => ({ name: n })) },
+		'KPI Impact': { multi_select: s.kpiImpact.map((n) => ({ name: n })) },
+		Status: { select: { name: s.status } },
+	};
+	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+		method: 'PATCH',
+		headers: notionHeaders(env),
+		body: JSON.stringify({ properties: props }),
+	});
+	if (!res.ok) throw new Error(`Notion update failed: ${res.status} ${await res.text()}`);
+}
+
+type NotionScorePayload = {
+	signalScore: number;
+	roleTag: 'IC' | 'Lead' | 'VP';
+	quickAction: string;
+	why: string;
+	decisionWindow: '<7d' | '7–30d' | '>30d';
+	affectedSteps: string[];
+	kpiImpact: string[];
+	status: 'Keep' | 'Archive' | 'Researching' | 'Draft';
+};
+
+function mapLLMToNotion(j: any, p: NotionPageLite): NotionScorePayload {
+	const stepsAll = ['Search', 'Browse', 'Signup', 'Checkout', 'Payment', 'Refund', 'Returns', 'Notifications', 'Pricing', 'Policy'];
+	const kpiAll = ['Conversion', 'Churn', 'CAC', 'NPS', 'Approval', 'CTR', 'ASO', 'SEO'];
+
+	let status = pickEnum(j.status, ['Keep', 'Archive', 'Researching', 'Draft'], 'Keep');
+	let score = typeof j.signal_score === 'number' ? j.signal_score : 0;
+	let window = pickEnum(j.decision_window, ['<7d', '7–30d', '>30d'], '>30d');
+
+	if (p.type === 'Coverage' && window === '>30d') {
+		status = 'Archive';
+		if (score > 3) score = 3;
+	}
+
+	// Coverage that smells like India policy — treat like Rails-lite
+	if (p.type === 'Coverage' && isIndiaPolicyish(p)) {
+		// make it eligible for compose
+		if (score < 5) score = 5;
+		if (window === '>30d') window = '7–30d';
+		if (status === 'Archive') status = 'Researching';
+	}
+
+	return {
+		signalScore: clamp(score, 0, 10),
+		roleTag: pickEnum(j.role_tag, ['IC', 'Lead', 'VP'], 'IC'),
+		quickAction: (j.quick_action || '').toString().slice(0, 100),
+		why: (j.why || '').toString().slice(0, 4000),
+		decisionWindow: window,
+		affectedSteps: Array.isArray(j.affected_steps) ? j.affected_steps.filter((x: string) => stepsAll.includes(x)) : [],
+		kpiImpact: Array.isArray(j.kpi_impact) ? j.kpi_impact.filter((x: string) => kpiAll.includes(x)) : [],
+		status,
+	};
+}
+
+/** =======================
+ * Compose + Validate + Patch
+ * ======================= */
+type DraftPost = {
+	id: string;
+	title: string; // Draft Title
+	body: string; // Draft Body
+	status?: 'Proposed' | 'Ready' | 'Needs Fact';
+	citations?: string;
+	audienceTier?: 'IC' | 'Lead' | 'VP';
+	postAngle?: 'Playbook' | 'Hot take' | 'Explainer';
+	// meta from source so validator can be smarter (esp. Rails)
+	_meta?: {
+		type?: TypeName;
+		excerpt?: string;
+		decisionWindow?: '<7d' | '7–30d' | '>30d';
+	};
+};
+
+function composeOneFromScored(p: NotionPageLite): DraftPost {
+	const src = p.title || guessSourceName(p.url || '');
+	const title = `[${p.type || 'Update'}] ${src}: What Indian PMs should do now`;
+
+	// NEW: sanitize quick action so it always passes validator (≤100 chars, imperative)
+	const qaRaw = (p.quickAction || '').trim();
+	const qa = sanitizeAction(qaRaw, p) || fallbackQuickAction(p);
+
+	const body = `What changed
+	• ${summarizeChange(p)}
+	
+	Why it matters (India)
+	• ${plainIndiaWhy(p)}
+	
+	Action for this week
+	• ${qa}
+	
+	If you own Checkout/Payments — expect impact on Conversion/Approval.
+	Source: ${p.url || ''}`;
+
+	return {
+		id: p.id,
+		title,
+		body,
+		status: 'Proposed',
+		citations: extractCitations(p),
+		audienceTier: p.audienceTier || 'IC',
+		postAngle: 'Explainer',
+	};
+}
+// map Type→action skeletons, always imperative + specific
+function concreteAction(p: NotionPageLite, steps: string[]): string {
+	const step = (steps[0] || '').replace(/[,/].*$/, '') || 'Checkout';
+	if (p.type === 'Rails') return `Paste clause/date in Citations; audit ${step}; open Jira with owner and ETA.`;
+	if (p.type === 'Platform') return `Review policy impact; update ${step} config; ship a canary within 48h.`;
+	if (p.type === 'Marketplace') return `Compare seller policy vs flow; fix copy/flow; draft seller comms.`;
+	// Coverage (policyish or not) — keep concrete but non-committal
+	return `Record key claim + date in Citations; no product changes until verified.`;
+}
+
+// Ensure imperative, non-vague, ≤100 chars
+function sanitizeAction(a: string, p: NotionPageLite): string {
+	const banned = /(learn more|follow along|stay tuned|monitor trends)/i;
+	const imperativeOk =
+		/^(review|audit|ship|enable|disable|update|fix|move|switch|file|notify|publish|roll back|rollout|test|pin|deprecate|block|allow|whitelist|blacklist|add|remove|verify|collect|document)\b/i;
+
+	let s = (a || '').replace(/\s+/g, ' ').trim();
+	if (!s || banned.test(s) || s.length > 100 || !imperativeOk.test(s)) {
+		// typed fallback
+		if (p.type === 'Rails') s = 'Audit compliance doc and capture clause/date into Citations';
+		else if (p.type === 'Platform') s = 'Test checkout/sign-in flows and document breakages';
+		else s = 'Review impact area and list exact touchpoints';
+	}
+	if (s.length > 100) s = s.slice(0, 100);
+	return s;
+}
+
+function summarizeChange(p: NotionPageLite): string {
+	const e = (p.excerpt || '').replace(/\s+/g, ' ');
+	// date-ish: “effective|from|by <date>”, or ISO, or “on <Month DD, YYYY>”
+	const dateish =
+		e.match(/\b(?:effective|from|by|on)\s+(?:\w+\s+\d{1,2},\s*\d{4}|\d{4}-\d{2}-\d{2}|\d{1,2}\s\w+\s\d{4})/i) ||
+		e.match(/\b\d{4}-\d{2}-\d{2}\b/);
+	if (dateish) return `Timing signal: ${dateish[0]}. Confirm clause in source and paste into “Citations”.`;
+	if (p.decisionWindow && p.decisionWindow !== '>30d') return `Window ${p.decisionWindow} implied; confirm clause/date in source.`;
+	return 'Update announced; confirm exact clause/date in source.';
+}
+
+function plainIndiaWhy(p: NotionPageLite): string {
+	if (p.type === 'Rails') return 'Affects compliance, distribution or pricing levers; missing it risks enforcement and churn.';
+	if (p.type === 'Platform') return 'Impacts ranking, eligibility or fees. Align app, pricing and notifications accordingly.';
+	return 'Likely lower signal; keep for context unless it drives rules, pricing or distribution.';
+}
+
+function extractCitations(p: NotionPageLite): string {
+	const bits = [];
+	if (p.url) bits.push(p.url);
+	const e = p.excerpt || '';
+	const firstLine = e.split('. ')[0]?.slice(0, 120);
+	if (firstLine) bits.push(`Excerpt: "${firstLine}..."`);
+	return bits.join('\n');
+}
+
+type ValidationResult = { id: string; valid: boolean; reason?: string; post?: DraftPost };
+
+function validatePosts(posts: DraftPost[]): ValidationResult[] {
+	const out: ValidationResult[] = [];
+	for (const post of posts) {
+		// Action line (allow spaces before bullet)
+		const qaMatch = post.body.match(/Action for this week\s*\n\s*•\s*(.+)/i);
+		const qaLine = qaMatch ? qaMatch[1].trim() : '';
+		if (!qaLine) {
+			out.push({ id: post.id, valid: false, reason: 'Missing Action line', post });
+			continue;
+		}
+		if (qaLine.length > 100) {
+			out.push({ id: post.id, valid: false, reason: 'Action > 100 chars', post });
+			continue;
+		}
+		if (/learn more|follow along|stay tuned/i.test(qaLine)) {
+			out.push({ id: post.id, valid: false, reason: 'Vague action', post });
+			continue;
+		}
+
+		// What changed needs date/clause or explicit “confirm exact clause/date”
+		const changedMatch = post.body.match(/What changed\s*\n\s*•\s*(.+)/i);
+		const changedLine = changedMatch ? changedMatch[1] : '';
+		const hasDateish = /\b(\d{4}-\d{2}-\d{2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|effective\s+from|by\s+\d{1,2})/i.test(
+			changedLine
+		);
+		if (!hasDateish && !/confirm exact clause\/date/i.test(changedLine)) {
+			out.push({ id: post.id, valid: false, reason: 'No concrete date/clause in What changed', post });
+			continue;
+		}
+
+		out.push({ id: post.id, valid: true, post });
+	}
+	return out;
+}
+
+async function patchDraftToNotion(env: Env, pageId: string, post: DraftPost): Promise<void> {
+	const props: any = {
+		'Draft Title': textProp(post.title || ''),
+		'Draft Body': textProp(post.body || ''),
+		'Draft Status': { select: { name: post.status || 'Proposed' } },
+	};
+	if (post.citations) props['Citations'] = textProp(post.citations);
+	if (post.audienceTier) props['Audience Tier'] = { select: { name: post.audienceTier } };
+	if (post.postAngle) props['Post Angle'] = { select: { name: post.postAngle } };
+
+	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+		method: 'PATCH',
+		headers: notionHeaders(env),
+		body: JSON.stringify({ properties: props }),
+	});
+	if (!res.ok) throw new Error(`Notion patch failed: ${res.status} ${await res.text()}`);
+}
+
+/** =======================
+ * Notion write (ingest)
+ * ======================= */
+async function createNotionPage(
+	env: Env,
+	{
+		sourceName,
+		url,
+		type,
+		format,
+		publishedAt,
+		importedAt,
+		batchId,
+	}: {
+		sourceName: string;
+		url: string;
+		type: TypeName;
+		format: FormatName;
+		publishedAt?: string;
+		importedAt: string;
+		batchId: string;
+	}
+) {
+	const props: Record<string, any> = {
+		'Source Name': { title: [{ text: { content: sourceName } }] },
+		URL: { url },
+		Type: { select: { name: type } },
+		Format: { select: { name: format } },
+		'Imported By': textProp('Cloudflare Worker'),
+		'Imported At': { date: { start: importedAt } },
+		'Batch ID': textProp(batchId),
+		'Last Checked': { date: { start: new Date().toISOString() } },
+	};
+	if (publishedAt) props['Published At'] = { date: { start: publishedAt } };
+
+	const res = await fetch('https://api.notion.com/v1/pages', {
+		method: 'POST',
+		headers: notionHeaders(env),
+		body: JSON.stringify({ parent: { database_id: env.NOTION_DATABASE_ID }, properties: props }),
+	});
+	if (!res.ok) throw new Error(`Notion create failed: ${res.status} ${await res.text()}`);
+}
+
+/** =======================
+ * LLM (Gemini-first; cheap)
+ * ======================= */
+async function callLLM(env: Env, prompt: string): Promise<string> {
+	const provider = env.LLM_PROVIDER || 'gemini';
+	const dailyCap = parseInt(env.DAILY_LLM_LIMIT || '200', 10);
+	const todayKey = `llm:${new Date().toISOString().slice(0, 10)}`;
+	const used = parseInt((await env.SEEN.get(todayKey)) || '0', 10);
+	if (used >= dailyCap) throw new Error('Daily LLM limit reached');
+	await env.SEEN.put(todayKey, String(used + 1), { expirationTtl: 60 * 60 * 26 });
+
+	if (provider === 'gemini') {
+		const key = env.GEMINI_API_KEY;
+		if (!key) throw new Error('Missing GEMINI_API_KEY');
+
+		// Choose cheapest broadly available text model unless forced
+		const model = env.GEMINI_MODEL_FORCE || 'gemini-2.0-flash-lite';
+		const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+		const body = {
+			contents: [{ role: 'user', parts: [{ text: prompt }] }],
+			generationConfig: { temperature: 0.2, maxOutputTokens: clamp(parseInt(env.LLM_MAX_OUTPUT_TOKENS || '512', 10), 64, 2048) },
+		};
+		const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+		if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
+		const data: any = await res.json();
+		const text =
+			data?.candidates?.[0]?.content?.parts
+				?.map((p: any) => p?.text)
+				.filter(Boolean)
+				.join('\n') || data?.candidates?.[0]?.content?.parts?.[0]?.text;
+		if (!text) throw new Error('Gemini returned no text');
+		return text;
+	}
+
+	throw new Error('Only Gemini path implemented in this file (set LLM_PROVIDER=gemini).');
+}
+
+// Parse LLM output that may come back wrapped in ```json fences or with extra text
+function safeParseLLM(raw: string): any {
+	const cleaned = raw.replace(/```json|```/g, '').trim();
+	try {
+		return JSON.parse(cleaned);
+	} catch {
+		// try to salvage the first {...} block
+		const m = cleaned.match(/\{[\s\S]*\}/);
+		if (!m) throw new Error('LLM did not return JSON');
+		return JSON.parse(m[0]);
+	}
+}
+
+/** =======================
+ * Net/Parsing helpers
+ * ======================= */
 async function safeGet(url: string): Promise<string | null> {
 	try {
 		const res = await fetch(url, {
 			headers: {
-				Accept: 'application/rss+xml, application/atom+xml, text/xml',
+				Accept: 'text/html,application/rss+xml,application/atom+xml,text/xml;q=0.9',
 				'User-Agent': 'Mozilla/5.0 (compatible; PMDigestWorker/1.0)',
 			},
 		});
 		if (!res.ok) return null;
-		const txt = await res.text();
-		return txt;
+		return await res.text();
 	} catch {
 		return null;
 	}
 }
 
-// ---------- Parsing (RSS + Atom) ----------
 function parseFeed(xml: string): FeedItem[] {
 	const items: FeedItem[] = [];
 
-	// RSS
-	const itemBlocks = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
-	for (const b of itemBlocks) {
+	// --- RSS items ---
+	const rss = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+	for (const b of rss) {
 		const title = pick(b, /<title[^>]*>([\s\S]*?)<\/title>/i);
-		const link = pick(b, /<link[^>]*>([\s\S]*?)<\/link>/i) || pick(b, /<link[^>]*href="([^"]+)"/i);
+		const link =
+			pick(b, /<link[^>]*>([\s\S]*?)<\/link>/i) ||
+			pick(b, /<link[^>]*href="([^"]+)"/i) ||
+			// NEW: some Indian gov feeds omit <link>; use <guid> as stable URL-ish fallback
+			pick(b, /<guid[^>]*>([\s\S]*?)<\/guid>/i);
 		const pub = pick(b, /<pubDate[^>]*>([\s\S]*?)<\/pubDate>/i) || pick(b, /<dc:date[^>]*>([\s\S]*?)<\/dc:date>/i);
+
 		items.push({ title: clean(title), link: clean(link), pubDate: clean(pub) });
 	}
 
-	// Atom
-	const entryBlocks = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
-	for (const b of entryBlocks) {
+	// --- Atom entries ---
+	const atom = xml.match(/<entry[\s\S]*?<\/entry>/gi) || [];
+	for (const b of atom) {
 		const title = pick(b, /<title[^>]*>([\s\S]*?)<\/title>/i);
 		const link =
 			pick(b, /<link[^>]*rel="alternate"[^>]*href="([^"]+)"/i) ||
 			pick(b, /<link[^>]*href="([^"]+)"[^>]*rel="alternate"[^>]*>/i) ||
 			pick(b, /<link[^>]*href="([^"]+)"/i);
 		const pub = pick(b, /<updated[^>]*>([\s\S]*?)<\/updated>/i) || pick(b, /<published[^>]*>([\s\S]*?)<\/published>/i);
+
 		items.push({ title: clean(title), link: clean(link), pubDate: clean(pub) });
 	}
 
-	// Dedup by link
 	const seen = new Set<string>();
-	return items.filter((x) => {
-		if (!x.link) return false;
-		if (seen.has(x.link)) return false;
-		seen.add(x.link);
-		return true;
-	});
-}
-function pick(text: string, re: RegExp): string {
-	const m = text.match(re);
-	return m ? m[1] : '';
-}
-function clean(s: string): string {
-	return (s || '').replace(/<!\[CDATA\[|\]\]>/g, '').trim();
+	return items.filter((x) => x.link && !seen.has(x.link) && seen.add(x.link));
 }
 
-// ---------- Classifier & mapping ----------
 function classifyItem(title = ''): 'Noise' | 'Long-form' | 'OK' {
 	const t = title.toLowerCase();
+	const indiaSignal = ['trai', 'rbi', 'uidai', 'npci', 'meity', 'sebi', 'ondc', 'pib', 'guidelines', 'advisory', 'press release'];
+	if (indiaSignal.some((w) => t.includes(w))) return 'OK';
+
 	const junk = ['hiring', 'careers', 'job opening', "we're hiring", 'award', 'funding round'];
 	if (junk.some((w) => t.includes(w))) return 'Noise';
 	if (t.includes('podcast') || t.includes('webinar') || t.includes('livestream')) return 'Long-form';
 	return 'OK';
 }
 
-function coerceTypeByTitle(original: TypeName, title = ''): TypeName {
-	if (original !== 'Coverage') return original;
-	const t = title.toLowerCase();
-	const railsHints = [
-		'rbi',
-		'trai',
-		'npci',
-		'meity',
-		'sebi',
-		'ed ',
-		'enforcement directorate',
-		'pss act',
-		'it rules',
-		'guidelines',
-		'circular',
-		'notification',
-	];
-	if (railsHints.some((h) => t.includes(h))) return 'Rails';
-	return original;
+function normalizeDate(s?: string): string | undefined {
+	if (!s) return undefined; // accept missing dates
+	const d = new Date(s);
+	return isNaN(d.getTime()) ? undefined : d.toISOString();
+}
+
+function isTooOld(publishedAt?: string): boolean {
+	if (!publishedAt) return false; // no date → don't exclude
+	const d = new Date(publishedAt);
+	if (isNaN(d.getTime())) return false;
+	return Date.now() - d.getTime() > MAX_AGE_DAYS * 86400000;
+}
+
+function normalizeFeedUrl(u: string): string {
+	try {
+		const url = new URL(u);
+		if (url.hostname.includes('android-developers.googleblog.com'))
+			return 'https://android-developers.googleblog.com/feeds/posts/default?alt=rss';
+		return url.toString();
+	} catch {
+		return u.trim();
+	}
 }
 
 function guessSourceName(feedUrl: string): string {
@@ -582,51 +1155,25 @@ function guessSourceName(feedUrl: string): string {
 		return feedUrl;
 	}
 }
-function normalizeDate(s?: string): string | undefined {
-	if (!s) return undefined;
-	const d = new Date(s);
-	return isNaN(d.getTime()) ? undefined : d.toISOString();
-}
-function isTooOld(publishedAt?: string): boolean {
-	if (!publishedAt) return false;
-	const d = new Date(publishedAt);
-	if (isNaN(d.getTime())) return false;
-	const ageMs = Date.now() - d.getTime();
-	return ageMs > MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
-}
 
-// ---------- Notion write ----------
-async function createNotionPage(
-	env: Env,
-	{
-		sourceName,
-		url,
-		type,
-		format,
-		publishedAt,
-		importedAt,
-		batchId,
-	}: { sourceName: string; url: string; type: TypeName; format: FormatName; publishedAt?: string; importedAt: string; batchId: string }
-) {
-	const props: Record<string, any> = {
-		'Source Name': { title: [{ text: { content: sourceName } }] },
-		URL: { url },
-		Type: { select: { name: type } },
-		Format: { select: { name: format } },
-		'Imported By': { rich_text: [{ text: { content: 'Cloudflare Worker' } }] },
-		'Imported At': { date: { start: importedAt } },
-		'Batch ID': { rich_text: [{ text: { content: batchId } }] },
-		'Last Checked': { date: { start: new Date().toISOString() } },
+/** =======================
+ * Notion generic helpers
+ * ======================= */
+function notionHeaders(env: Env): Record<string, string> {
+	return {
+		Authorization: `Bearer ${env.NOTION_TOKEN}`,
+		'Notion-Version': '2022-06-28',
+		'Content-Type': 'application/json',
 	};
-	if (publishedAt) props['Published At'] = { date: { start: publishedAt } };
+}
 
-	const payload = { parent: { database_id: env.NOTION_DATABASE_ID }, properties: props };
-	const res = await fetch('https://api.notion.com/v1/pages', {
-		method: 'POST',
+async function notionPatch(env: Env, pageId: string, props: Record<string, any>) {
+	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
+		method: 'PATCH',
 		headers: notionHeaders(env),
-		body: JSON.stringify(payload),
+		body: JSON.stringify({ properties: props }),
 	});
-	if (!res.ok) throw new Error(`Notion error (${res.status}): ${await res.text()}`);
+	if (!res.ok) throw new Error(`Notion patch failed: ${res.status} ${await res.text()}`);
 }
 
 function extractTitle(titleProp: any): string | undefined {
@@ -638,210 +1185,39 @@ function extractTitle(titleProp: any): string | undefined {
 		.join(' ')
 		.trim();
 }
-function notionHeaders(env: Env): Record<string, string> {
-	return {
-		Authorization: `Bearer ${env.NOTION_TOKEN}`,
-		'Notion-Version': '2022-06-28',
-		'Content-Type': 'application/json',
-	};
+function extractText(rt: any): string {
+	const arr = rt?.rich_text || [];
+	if (!Array.isArray(arr) || arr.length === 0) return '';
+	return arr
+		.map((t: any) => t.plain_text || t.text?.content)
+		.filter(Boolean)
+		.join(' ')
+		.trim();
 }
 
-// ---------- LLM (Gemini-first; cheapest stable) ----------
-type GeminiModel = { name: string };
-
-async function listGeminiModels(key: string): Promise<GeminiModel[]> {
-	const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`);
-	if (!res.ok) throw new Error(`Gemini listModels error ${res.status}: ${await res.text()}`);
-	const data: any = await res.json();
-	return (data.models || []).map((m: any) => ({ name: (m.name || '').replace(/^models\//, '') }));
-}
-function pickBestGeminiModel(models: GeminiModel[], forced?: string): string {
-	if (forced) return forced;
-	const names = models.map((m) => m.name).filter(Boolean);
-	const nonPreview = names.filter((n) => !/preview/i.test(n));
-	const prefs = [
-		/gemini-1\.5-flash-002/i,
-		/gemini-1\.5-flash-latest/i,
-		/gemini-1\.5-flash/i,
-		/gemini-1\.5-pro-002/i,
-		/gemini-1\.5-pro-latest/i,
-		/gemini-1\.5-pro/i,
-	];
-	for (const re of prefs) {
-		const hit = nonPreview.find((n) => re.test(n));
-		if (hit) return hit;
-	}
-	const fb = nonPreview.find((n) => /(flash|pro)/i.test(n));
-	if (fb) return fb;
-	if (!names.length) throw new Error('Gemini: no models available');
-	return names[0];
+function textProp(s: string) {
+	return { rich_text: [{ type: 'text', text: { content: s.slice(0, 4000) } }] };
 }
 
-async function callLLM(env: Env, prompt: string): Promise<string> {
-	const provider = (env as any).LLM_PROVIDER || 'gemini';
-
-	// simple daily call cap
-	const dailyCap = parseInt((env as any).DAILY_LLM_LIMIT || '200', 10);
-	const todayKey = `llm_calls:${new Date().toISOString().slice(0, 10)}`;
-	const used = parseInt((await env.SEEN.get(todayKey)) || '0', 10);
-	if (used >= dailyCap) throw new Error('Daily LLM limit reached');
-	await env.SEEN.put(todayKey, String(used + 1), { expirationTtl: 60 * 60 * 26 });
-
-	if (provider === 'gemini') {
-		const key = (env as any).GEMINI_API_KEY;
-		if (!key) throw new Error('Missing GEMINI_API_KEY');
-
-		let model = (env as any).GEMINI_MODEL_FORCE || (await env.SEEN.get('GEMINI_MODEL'));
-		if (!model) {
-			const models = await listGeminiModels(key);
-			model = pickBestGeminiModel(models, (env as any).GEMINI_MODEL_FORCE);
-			await env.SEEN.put('GEMINI_MODEL', model);
-		}
-
-		const maxOut = clamp(parseInt((env as any).LLM_MAX_OUTPUT_TOKENS || '512', 10), 64, 2048);
-		const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-		const body = {
-			contents: [{ role: 'user', parts: [{ text: prompt }] }],
-			generationConfig: { temperature: 0.2, maxOutputTokens: maxOut },
-		};
-
-		let res = await fetch(url, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify(body),
-		});
-
-		if (res.status === 404) {
-			await env.SEEN.delete('GEMINI_MODEL');
-			const models = await listGeminiModels(key);
-			model = pickBestGeminiModel(models, (env as any).GEMINI_MODEL_FORCE);
-			await env.SEEN.put('GEMINI_MODEL', model);
-			const retryUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-			res = await fetch(retryUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-		}
-		if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
-
-		const data: any = await res.json();
-		const text = data?.candidates?.[0]?.content?.parts
-			?.map((p: any) => p?.text)
-			.filter(Boolean)
-			.join('\n');
-		if (!text) throw new Error('Gemini returned no text');
-		return text;
-	}
-
-	// OpenAI fallback (requires API key; Plus sub is not the API)
-	const key = (env as any).OPENAI_API_KEY;
-	if (!key) throw new Error('Missing OPENAI_API_KEY');
-	const res = await fetch('https://api.openai.com/v1/chat/completions', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-		body: JSON.stringify({
-			model: 'gpt-4o-mini',
-			temperature: 0.2,
-			messages: [
-				{ role: 'system', content: 'You are a pragmatic product manager for India-focused consumer apps. Return STRICT JSON only.' },
-				{ role: 'user', content: prompt },
-			],
-		}),
-	});
-	if (!res.ok) throw new Error(`OpenAI error ${res.status}: ${await res.text()}`);
-	const data: any = await res.json();
-	const text = data?.choices?.[0]?.message?.content;
-	if (!text) throw new Error('OpenAI returned no text');
-	return text;
+/** =======================
+ * Utilities
+ * ======================= */
+function json(data: unknown, status = 200): Response {
+	return new Response(JSON.stringify(data, null, 2), { status, headers: { 'content-type': 'application/json' } });
 }
-
-// ---------- LLM prompt shaping & mapping ----------
-function shapeContentForLLM(p: NotionPageLite, env?: Env): { prompt: string } {
-	const title = p.title || '(no title)';
-	const url = p.url || '';
-	const type = p.type || '';
-	const format = p.format || '';
-	const excerpt = (p.excerpt || '').slice(0, 1200);
-	const companyProfile = (env as any)?.COMPANY_PROFILE || 'vertical=ecommerce; scale=mid; payments=UPI; top_kpis=Conversion,Churn';
-
-	const prompt = `
-  You are a ruthless PM editor for Indian consumer apps. Read the ITEM and return STRICT JSON.
-  
-  ITEM:
-  - Title: ${title}
-  - URL: ${url}
-  - Type: ${type}
-  - Excerpt: ${excerpt}
-  - CompanyProfile: ${companyProfile}
-  
-  Return JSON with ALL keys (no extras):
-  {
-	"signal_score": 0-10,
-	"role_tag": "IC"|"Lead"|"VP",
-	"decision_window": "<7d"|"7–30d"|">30d",
-	"what_changed": "Quote one concrete change with date/threshold.",
-	"quick_actions": [
-	  {"owner":"IC|Lead|VP","task":"imperative, ≤14 words","due_days":7},
-	  {"owner":"IC|Lead|VP","task":"...","due_days":30}
-	],
-	"affected_steps": ["Search","Browse","Signup","Checkout","Payment","Refund","Returns","Notifications","Pricing","Policy"],
-	"kpi_impact": [{"kpi":"Conversion|Churn|CAC|NPS|Approval|CTR|ASO|SEO","dir":"+|-"}],
-	"risks": ["one-liner risk or unknown"],
-	"status": "Keep"|"Archive"|"Researching"|"Draft",
-	"citations": [{"source":"${url}","note":"anchor or section"}]
-  }
-  
-  Rules:
-  - If Type="Coverage" and no rule/policy/pricing/ranking change is stated → status="Archive", signal_score≤3.
-  - Quick actions must be shippable. No verbs like “monitor/consider/explore”.
-  - Prefer Platform/Rails. If enforcement/deadline mentioned → decision_window "<7d" or "7–30d".
-  - Tailor actions to CompanyProfile. If ecommerce, talk checkout/returns/COD; if fintech, talk KYC/limits.
-  - Always fill "what_changed" with a concrete clause/date. If unknown, set status="Researching" and add a risk like "source vague".
-  `.trim();
-
-	return { prompt };
+function pick(text: string, re: RegExp): string {
+	const m = text.match(re);
+	return m ? m[1] : '';
 }
-
-function safeParseLLM(raw: string): any {
-	const cleaned = raw.replace(/```json|```/g, '').trim();
-	try {
-		return JSON.parse(cleaned);
-	} catch {
-		const m = cleaned.match(/\{[\s\S]*\}/);
-		if (!m) throw new Error('LLM did not return JSON');
-		return JSON.parse(m[0]);
-	}
+function clean(s: string): string {
+	return (s || '').replace(/<!\[CDATA\[|\]\]>/g, '').trim();
 }
-
-type NotionScorePayload = {
-	signalScore: number;
-	roleTag: 'IC' | 'Lead' | 'VP';
-	quickAction: string;
-	why: string;
-	decisionWindow: '<7d' | '7–30d' | '>30d';
-	affectedSteps: string[];
-	kpiImpact: string[];
-	status: 'Keep' | 'Archive' | 'Researching' | 'Draft';
-};
-
-async function notionUpdateScoring(env: Env, pageId: string, s: NotionScorePayload): Promise<void> {
-	const props: any = {
-		'Signal Score': { number: clamp(+s.signalScore, 0, 10) },
-		'Role Tag': { select: { name: s.roleTag } },
-		'Quick Action': { rich_text: [{ text: { content: s.quickAction } }] },
-		Why: { rich_text: [{ text: { content: s.why } }] },
-		'Decision Window': { select: { name: s.decisionWindow } },
-		'Affected Steps': { multi_select: s.affectedSteps.map((n) => ({ name: n })) },
-		'KPI Impact': { multi_select: s.kpiImpact.map((n) => ({ name: n })) },
-		Status: { select: { name: s.status } },
-	};
-
-	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
-	});
-	if (!res.ok) throw new Error(`Notion update failed: ${res.status} ${await res.text()}`);
+function stripTags(html: string): string {
+	return html
+		.replace(/<script[\s\S]*?<\/script>/gi, '')
+		.replace(/<style[\s\S]*?<\/style>/gi, '')
+		.replace(/<[^>]+>/g, ' ');
 }
-
-// ---------- tiny non-crypto hash ----------
 function hash(s: string): string {
 	let h = 5381;
 	for (let i = 0; i < s.length; i++) h = (h << 5) + h + s.charCodeAt(i);
@@ -851,535 +1227,69 @@ function clamp(n: number, lo: number, hi: number) {
 	return Math.max(lo, Math.min(hi, n));
 }
 function pickEnum<T extends string>(val: any, allowed: T[], fallback: T): T {
-	if (typeof val === 'string' && allowed.includes(val as T)) return val as T;
-	return fallback;
-}
-function normalizeFeedUrl(u: string): string {
-	try {
-		const url = new URL(u);
-		if (url.hostname.includes('android-developers.googleblog.com'))
-			return 'https://android-developers.googleblog.com/feeds/posts/default?alt=rss';
-		return url.toString();
-	} catch {
-		return u.trim();
-	}
+	return typeof val === 'string' && (allowed as any).includes(val) ? (val as T) : fallback;
 }
 
-type ComposePage = NotionPageLite & {
-	signal?: number;
-	status?: string; // Keep/Researching/...
-	why?: string;
-	quick?: string;
-};
+function extractSignalsFromExcerpt(e: string) {
+	const dateish = /\b(?:effective|from|on|by)\s+(?:\w+\s+\d{1,2},\s*\d{4}|\d{1,2}\s\w+\s\d{4}|\d{4}-\d{2}-\d{2})/i.exec(e || '');
+	const numeric = /\b(?:₹|Rs\.?|INR|USD|\d[\d,]*\s?(?:MHz|GHz|%)|\b\d{1,3}(?:,\d{3})+\b|\b\d{4}-\d{2}-\d{2}\b)/.exec(e || '');
+	return { dateish: dateish?.[0], hasNumeric: !!numeric };
+}
 
-async function notionFetchForCompose(env: Env, limit: number): Promise<ComposePage[]> {
-	const today = new Date().toISOString().slice(0, 10);
-
-	const sorts = [
-		{ property: 'Type', direction: 'ascending' as const },
-		{ property: 'Signal Score', direction: 'descending' as const },
-		{ property: 'Published At', direction: 'descending' as const },
+function isIndiaRelevant(text: string): boolean {
+	const t = text.toLowerCase();
+	const needles = [
+		'india',
+		'indian',
+		'rbi',
+		'meity',
+		'trai',
+		'uidai',
+		'npci',
+		'ondc',
+		'sebi',
+		'dpiit',
+		'mha',
+		'mof',
+		'up i',
+		'aadhaar',
+		'bharat',
+		'karnataka',
+		'maharashtra',
+		'delhi',
+		'gst',
+		'upi',
+		'india stack',
+		'indias stack',
 	];
-
-	// Pass 1: Platform/Rails high-signal, today's batch
-	const pass1 = await notionQueryCompose(env, {
-		filter: {
-			and: [
-				{ property: 'Batch ID', rich_text: { contains: today } },
-				{ property: 'Signal Score', number: { greater_than_or_equal_to: 6 } },
-				{ property: 'Status', select: { does_not_equal: 'Archive' } },
-				{
-					or: [
-						{ property: 'Type', select: { equals: 'Platform' } },
-						{ property: 'Type', select: { equals: 'Rails' } },
-					],
-				},
-			],
-		},
-		sorts,
-		page_size: Math.min(limit, 15),
-	});
-
-	if (pass1.length >= limit) return pass1.slice(0, limit);
-
-	// Pass 2: Other types with signal ≥7 to keep quality high
-	const pass2 = await notionQueryCompose(env, {
-		filter: {
-			and: [
-				{ property: 'Batch ID', rich_text: { contains: today } },
-				{ property: 'Signal Score', number: { greater_than_or_equal_to: 7 } },
-				{ property: 'Status', select: { does_not_equal: 'Archive' } },
-				{
-					and: [
-						{ property: 'Type', select: { does_not_equal: 'Platform' } },
-						{ property: 'Type', select: { does_not_equal: 'Rails' } },
-					],
-				},
-			],
-		},
-		sorts,
-		page_size: Math.min(limit - pass1.length, 10),
-	});
-
-	return [...pass1, ...pass2].slice(0, limit);
+	return needles.some((n) => t.includes(n));
 }
 
-async function notionQueryCompose(env: Env, body: any): Promise<ComposePage[]> {
-	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
-		method: 'POST',
-		headers: notionHeaders(env),
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
-	const data = await res.json();
-	const out: ComposePage[] = [];
-	for (const r of data.results || []) {
-		const p = r.properties || {};
-		out.push({
-			id: r.id,
-			url: p['URL']?.url,
-			title: extractTitle(p['Source Name']),
-			sourceName: extractTitle(p['Source Name']),
-			type: p['Type']?.select?.name,
-			format: p['Format']?.select?.name,
-			signal: p['Signal Score']?.number ?? undefined,
-			status: p['Status']?.select?.name,
-			why: (p['Why']?.rich_text || [])
-				.map((x: any) => x.plain_text)
-				.join(' ')
-				.trim(),
-			quick: (p['Quick Action']?.rich_text || [])
-				.map((x: any) => x.plain_text)
-				.join(' ')
-				.trim(),
-		});
-	}
-	return out;
+function isIndiaPolicyish(p: NotionPageLite): boolean {
+	const base = `${p.title || ''} ${p.excerpt || ''}`.toLowerCase();
+	const kws = [
+		'policy',
+		'pricing',
+		'fee',
+		'regulator',
+		'ban',
+		'compliance',
+		'guideline',
+		'notified',
+		'circular',
+		'order',
+		'mandate',
+		'framework',
+		'licens',
+	];
+	return isIndiaRelevant(base) && kws.some((k) => base.includes(k));
 }
 
-function shapeComposePrompt(p: any, summary: string): { prompt: string } {
-	const title = p.title || '(no title)';
-	const url = p.url || '';
-	const type = p.type || '';
-
-	const prompt = `
-  Return STRICT JSON for a LinkedIn post draft for Indian Product Managers.
-  
-  INPUT:
-  - TYPE: ${type}
-  - TITLE: ${title}
-  - URL: ${url}
-  
-  SUMMARY (factual, extracted from article):
-  ${summary}
-  
-  CONSTRAINTS:
-  - Plain English. No jargon. No hedging.
-  - Must include India context (UPI/NPCI/TRAI/ONDC, Android share, local pricing/compliance).
-  - Concrete action tied to a surface and KPI (e.g., "Update Play listing keywords for Hindi queries to defend CTR").
-  - Max 1200 chars total.
-  
-  OUTPUT SHAPE:
-  {
-	"draft_title": "≤ 80 chars, crisp, no clickbait",
-	"draft_body": "Sections: What changed (1–2 lines). Why it matters for India (2–4 lines, concrete surfaces like Checkout/SEO/Notifications/Payments). Quick action (≤100 chars, imperative). Open question (1 line).",
-	"audience_tier": "IC" | "Lead" | "VP",
-	"post_angle": ["Compliance","Growth","ASO/SEO","Checkout/Payments","Marketplace Ops"]
-  }
-	`.trim();
-
-	return { prompt };
-}
-
-type ComposeOut = {
-	draft_title: string;
-	draft_body: string;
-	audience_tier: 'IC' | 'Lead' | 'VP';
-	post_angle: string[];
-};
-
-function mapComposeToNotion(j: any, p: ComposePage) {
-	const title = (j?.draft_title || '').toString().slice(0, 80);
-	const body = (j?.draft_body || '').toString().slice(0, 1200);
-	const tier = pickEnum(j?.audience_tier, ['IC', 'Lead', 'VP'], p.type === 'Platform' || p.type === 'Rails' ? 'Lead' : 'IC');
-	const anglesAll = ['Compliance', 'Growth', 'ASO/SEO', 'Checkout/Payments', 'Marketplace Ops'];
-	const angles = Array.isArray(j?.post_angle) ? j.post_angle.filter((x: string) => anglesAll.includes(x)) : [];
-
-	return {
-		draftTitle: title,
-		draftBody: body,
-		audienceTier: tier,
-		postAngle: angles,
-	};
-}
-
-async function notionUpdateDraft(env: Env, pageId: string, d: ReturnType<typeof mapComposeToNotion>) {
-	const props: any = {
-		'Draft Status': { select: { name: 'Proposed' } },
-		'Audience Tier': { select: { name: d.audienceTier } },
-		'Post Angle': { multi_select: d.postAngle.map((n) => ({ name: n })) },
-	};
-	if (d.draftTitle) props['Draft Title'] = { rich_text: [{ text: { content: d.draftTitle } }] };
-	if (d.draftBody) props['Draft Body'] = { rich_text: [{ text: { content: d.draftBody } }] };
-
-	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
-	});
-	if (!res.ok) throw new Error(`Notion draft update failed: ${res.status} ${await res.text()}`);
-}
-
-// ---------- Article content fetch & cache ----------
-
-async function fetchArticleText(env: Env, url: string): Promise<string | null> {
-	const cacheKey = `content:${hash(url)}`;
-	const cached = await env.SEEN.get(cacheKey);
-	if (cached) return cached;
-
-	try {
-		const res = await fetch(url, {
-			headers: {
-				'User-Agent': 'Mozilla/5.0 (compatible; PMDigestWorker/1.0; +https://storyofstrategy.com/)',
-				Accept: 'text/html,application/xhtml+xml',
-			},
-		});
-		if (!res.ok) return null;
-
-		const ctype = res.headers.get('content-type') || '';
-		if (!/html/i.test(ctype)) {
-			// Non-HTML (PDF, image, etc.) → we skip full extraction
-			return null;
-		}
-
-		const html = await res.text();
-		const text = extractMainText(html);
-		if (text) {
-			// keep ~50KB to be safe
-			const clipped = text.slice(0, 50_000);
-			await env.SEEN.put(cacheKey, clipped, { expirationTtl: 60 * 60 * 24 * 7 }); // 7 days
-			return clipped;
-		}
-		return null;
-	} catch {
-		return null;
-	}
-}
-
-// basic text extractor that works in Workers (no DOM)
-// It favors <article> or long paragraphs, strips scripts/styles/nav
-function extractMainText(html: string): string {
-	// remove scripts/styles/comments
-	let h = html
-		.replace(/<script[\s\S]*?<\/script>/gi, ' ')
-		.replace(/<style[\s\S]*?<\/style>/gi, ' ')
-		.replace(/<!--[\s\S]*?-->/g, ' ');
-
-	// try <article> first
-	const articleMatch = h.match(/<article[\s\S]*?<\/article>/i);
-	let core = articleMatch ? articleMatch[0] : h;
-
-	// strip boilerplate tags
-	core = core.replace(/<(header|footer|nav|aside|form|button|svg)[\s\S]*?<\/\1>/gi, ' ');
-
-	// kill tags, keep text
-	core = core.replace(/<\/?[^>]+>/g, ' ');
-
-	// collapse whitespace
-	core = core.replace(/\s+/g, ' ').trim();
-
-	// heuristic: keep longest slice around sentences
-	// (in practice the above is enough; we just return)
-	return core;
-}
-
-async function getContextFor(env: Env, p: { url?: string; title?: string }): Promise<{ summary: string; excerpt: string }> {
-	const url = (p.url || '').trim();
-	const title = (p.title || '').trim();
-
-	// Try fetching the page text
-	let text = url ? await fetchArticleText(env, url) : null;
-
-	// If nothing, fall back to title only
-	if (!text || text.length < 400) {
-		const minimal = title ? `TITLE: ${title}\nURL: ${url}` : '';
-		return { summary: minimal, excerpt: title || '' };
-	}
-
-	// Light summarization pass (cheap, short output)
-	const sumPrompt = `
-  Summarize the following article content in 6–10 bullet points.
-  Focus on concrete changes, dates/deadlines, policy/enforcement, pricing/ranking/distribution.
-  Keep it neutral and factual; no fluff.
-  
-  CONTENT:
-  ${text.slice(0, 8000)}
-	`.trim();
-
-	const summary = await callLLM(env, sumPrompt);
-	const excerpt = summary.split('\n').slice(0, 3).join(' ').slice(0, 500);
-	return { summary, excerpt };
-}
-
-function validateOutput(j: any): { ok: boolean; reason?: string } {
-	// 1) quick_actions present and imperative (no banned verbs)
-	const banned = /(monitor|consider|explore|keep an eye|stay informed)/i;
-	if (!Array.isArray(j.quick_actions) || j.quick_actions.length === 0) {
-		return { ok: false, reason: 'no quick_actions' };
-	}
-	for (const qa of j.quick_actions) {
-		const task = (qa?.task || '').toString();
-		const owner = (qa?.owner || '').toString();
-		const due = +qa?.due_days;
-		if (!task || banned.test(task)) return { ok: false, reason: 'banned verb in quick_actions' };
-		if (!owner || !/^(IC|Lead|VP)$/.test(owner)) return { ok: false, reason: 'owner missing/invalid' };
-		if (!(due >= 1)) return { ok: false, reason: 'due_days invalid' };
-		if (task.split(' ').length > 14) return { ok: false, reason: 'task too long' };
-	}
-
-	// 2) what_changed must include a date/number/threshold cue
-	const wc = (j.what_changed || '').toString();
-	if (!wc || !/(\d{4}|\d{1,3}%|₹|\$|\bJan|\bFeb|\bMar|\bApr|\bMay|\bJun|\bJul|\bAug|\bSep|\bOct|\bNov|\bDec|\b20\d{2})/i.test(wc)) {
-		return { ok: false, reason: 'what_changed lacks concrete detail/date' };
-	}
-
-	// 3) KPI with direction
-	if (!Array.isArray(j.kpi_impact) || j.kpi_impact.length === 0) {
-		return { ok: false, reason: 'kpi_impact missing' };
-	}
-	const hasDir = j.kpi_impact.some(
-		(x: any) =>
-			x && typeof x.kpi === 'string' && /^(Conversion|Churn|CAC|NPS|Approval|CTR|ASO|SEO)$/.test(x.kpi) && /^(?:\+|-)$/.test(x.dir)
-	);
-	if (!hasDir) return { ok: false, reason: 'kpi_impact lacks +/-' };
-
-	return { ok: true };
-}
-
-function mapLLMToNotion(j: any, p: NotionPageLite): NotionScorePayload {
-	const stepsAll = ['Search', 'Browse', 'Signup', 'Checkout', 'Payment', 'Refund', 'Returns', 'Notifications', 'Pricing', 'Policy'];
-	const kpiAll = ['Conversion', 'Churn', 'CAC', 'NPS', 'Approval', 'CTR', 'ASO', 'SEO'];
-
-	// base parse
-	let status = pickEnum(j.status, ['Keep', 'Archive', 'Researching', 'Draft'], 'Keep');
-	let score = typeof j.signal_score === 'number' ? j.signal_score : 0;
-	let decision = pickEnum(j.decision_window, ['<7d', '7–30d', '>30d'], '>30d');
-
-	// Coverage rule
-	if (p.type === 'Coverage' && decision === '>30d') {
-		status = 'Archive';
-		if (score > 3) score = 3;
-	}
-
-	// Validate; if fails → downgrade to Researching and force one IC action
-	const v = validateOutput(j);
-	let quicks = Array.isArray(j.quick_actions) ? j.quick_actions : [];
-	let why = (j.why || '').toString().slice(0, 4000);
-
-	if (!v.ok) {
-		status = 'Researching';
-		if (score > 5) score = 5;
-		// inject a concrete IC task
-		const icTask = { owner: 'IC', task: 'Open source and capture exact clause/date into Citations', due_days: 3 };
-		quicks = [icTask];
-		// clarify the why
-		why = `Draft failed validator (${v.reason}). Need exact clause/date and KPI direction grounded on source. ${why}`;
-	}
-
-	// Collapse quick_actions -> single line (for Notion "Quick Action")
-	const qaLine = quicks
-		.slice(0, 2)
-		.map((q: any) => {
-			const own = /^(IC|Lead|VP)$/.test(q?.owner) ? q.owner : 'IC';
-			const task = (q?.task || '').toString().slice(0, 100);
-			const due = q?.due_days && +q.due_days > 0 ? ` (due ${q.due_days}d)` : '';
-			return `[${own}] ${task}${due}`;
-		})
-		.join(' • ');
-
-	const steps = Array.isArray(j.affected_steps) ? j.affected_steps.filter((x: string) => stepsAll.includes(x)) : [];
-	const kpis = Array.isArray(j.kpi_impact)
-		? (j.kpi_impact
-				.map((x: any) => x && `${x.kpi}${x.dir}`)
-				.filter((s: any) => typeof s === 'string')
-				.map((s: string) => {
-					// Turn "Conversion+" → "Conversion" with direction retained in Why
-					const k = s.replace(/[+-]$/, '');
-					return kpiAll.includes(k) ? k : null;
-				})
-				.filter(Boolean) as string[])
-		: [];
-
-	return {
-		signalScore: clamp(score, 0, 10),
-		roleTag: pickEnum(j.role_tag, ['IC', 'Lead', 'VP'], 'IC'),
-		quickAction: qaLine || 'IC: Fill missing clause/date (3d)',
-		why,
-		decisionWindow: decision,
-		affectedSteps: steps,
-		kpiImpact: kpis,
-		status,
-	};
-}
-
-function composeLinkedInDraft(p: NotionPageLite, j: any): { title: string; body: string } {
-	const title = (p.title || '').trim();
-	const url = p.url || '';
-	const wc = (j.what_changed || '').toString();
-	const qa = Array.isArray(j.quick_actions) ? j.quick_actions.slice(0, 2) : [];
-	const kpi = Array.isArray(j.kpi_impact) && j.kpi_impact[0] ? `${j.kpi_impact[0].kpi} ${j.kpi_impact[0].dir}` : 'Conversion +';
-	const hook = (title || wc).slice(0, 90);
-
-	const bullets = qa
-		.map((q: any) => {
-			const own = q?.owner || 'IC';
-			const task = (q?.task || '').toString();
-			const due = q?.due_days ? ` — ${q.due_days}d` : '';
-			return `- [${own}] ${task}${due}`;
-		})
-		.join('\n');
-
-	const body = `**${hook}**
-  What changed: ${wc}
-  
-  Why it matters (India PM): ${(j.why || '').toString()}
-  
-  Do this this week:
-  ${bullets || '- [IC] Capture exact clause/date into Citations — 3d'}
-  
-  Watch: ${kpi}
-  Refs: ${url}`;
-
-	return { title: hook, body };
-}
-
-// --- compose gating ---
-const BANNED_VERBS = ['explore', 'monitor', 'consider', 'keep an eye', 'stay updated'];
-function shouldCompose(p: NotionPageLite): boolean {
-	const t = p.type || 'Coverage';
-	if (!['Platform', 'Rails', 'Marketplace'].includes(t)) return false; // skip Coverage/Long-form
-	return true;
-}
-
-type FetchedContext = { excerpt: string; firstClause: string; firstDate?: string; citation: string };
-
-async function fetchUrlContext(url: string): Promise<FetchedContext | null> {
-	// 1) fetch HTML
-	const html = await safeGet(url);
-	if (!html) return null;
-
-	// 2) crude text extraction
-	const text = html
-		.replace(/<script[\s\S]*?<\/script>/gi, '')
-		.replace(/<style[\s\S]*?<\/style>/gi, '')
-		.replace(/<[^>]+>/g, ' ')
-		.replace(/\s+/g, ' ')
-		.trim();
-
-	if (!text) return null;
-
-	// 3) find first YYYY or Month pattern
-	const dateRe =
-		/\b(20\d{2}|Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b[^.]{0,40}/i;
-	const dateHit = text.match(dateRe)?.[0];
-
-	// 4) try to grab a clause that looks like a rule/change
-	const clauseRe =
-		/(effective from|effective on|must|shall|required|will be|will start|deadline|deprecate|sunset|remove|enforce)[^.]{0,200}\./i;
-	const clause = text.match(clauseRe)?.[0] || '';
-
-	// 5) excerpt
-	const excerpt = text.slice(0, 600);
-
-	// 6) citation token [1] with minimal provenance
-	const host = (() => {
-		try {
-			return new URL(url).hostname;
-		} catch {
-			return url;
-		}
-	})();
-	const citation = `[1] ${host} – ${dateHit ? dateHit : 'no-explicit-date'}`;
-
-	return { excerpt, firstClause: clause, firstDate: dateHit || undefined, citation };
-}
-
-async function notionPatchContext(env: Env, pageId: string, ctx: FetchedContext) {
-	const props: any = {
-		'Source Excerpt': { rich_text: [{ text: { content: ctx.excerpt.slice(0, 4000) } }] },
-		Citations: { rich_text: [{ text: { content: ctx.citation } }] },
-		'Content Fetched': { checkbox: true },
-	};
-	await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
-	});
-}
-
-async function notionGetPage(env: Env, pageId: string): Promise<any> {
-	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		headers: notionHeaders(env),
-	});
-	if (!res.ok) throw new Error(`Notion get page failed: ${res.status}`);
-	return res.json();
-}
-
-function validateDraft(title: string, body: string): { ok: boolean; error?: string } {
-	if (!title || title.length < 10) return { ok: false, error: 'title too short' };
-	if (!/\[\d+\]/.test(body)) return { ok: false, error: 'missing citation token [n]' };
-	if (!/\b(20\d{2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\b/i.test(body)) return { ok: false, error: 'missing concrete date' };
-	const lower = body.toLowerCase();
-	if (BANNED_VERBS.some((v) => lower.includes(v))) return { ok: false, error: 'banned verb' };
-	if (body.length > 1500) return { ok: false, error: 'task too long' };
-	return { ok: true };
-}
-
-async function notionWriteDraft(env: Env, pageId: string, title: string, body: string) {
-	const props: any = {
-		'Draft Title': { rich_text: [{ text: { content: title.slice(0, 200) } }] },
-		'Draft Body': { rich_text: [{ text: { content: body.slice(0, 4000) } }] },
-		'Draft Status': { select: { name: 'Proposed' } },
-	};
-	await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
-	});
-}
-
-async function composeDraftWithLLM(
-	env: Env,
-	p: NotionPageLite,
-	excerpt: string,
-	citations: string
-): Promise<{ title: string; body: string }> {
-	const base = `
-  You write LinkedIn posts for Indian PMs. Plain English, no jargon. One tight post, not a thread.
-  
-  CONTEXT (verbatim excerpts from source):
-  ${excerpt}
-  
-  CITATIONS TO INCLUDE (use token like [1]):
-  ${citations}
-  
-  Produce:
-  - Title: <= 70 chars, concrete.
-  - Body: 5 short lines max. Must include: 
-	• WHAT CHANGED (quote the clause if present) 
-	• WHO’S AFFECTED (IC/Lead/VP) 
-	• 1 SPECIFIC ACTION with date/deadline 
-	• KPI direction (+/- Conversion/Approval/etc.)
-	• One [1] citation token.
-  
-  Rules:
-  - Start action with a verb (no “explore/monitor/consider/keep an eye”).
-  - Include at least one concrete date or “effective from …”.
-  - Keep it India-relevant; mention UPI/NPCI/TRAI only if applicable.
-  Return STRICT JSON: {"title":"...","body":"..."}.
-	`.trim();
-
-	const raw = await callLLM(env, base);
-	const j = safeParseLLM(raw);
-	return { title: (j.title || '').toString(), body: (j.body || '').toString() };
+function fallbackQuickAction(p: NotionPageLite): string {
+	// Short, imperative, ≤100 chars
+	if (p.type === 'Rails') return 'Scan source; list clauses affecting pricing/comms; flag teams with owners by EOD.';
+	if (p.type === 'Platform') return 'Review feature/policy shift; note app impacts; open a tracking ticket.';
+	if (p.type === 'Marketplace') return 'Check seller/ops policy changes; update playbooks if applicable.';
+	// Coverage
+	return 'Skim and capture 1 actionable risk or opportunity for your product area.';
 }
