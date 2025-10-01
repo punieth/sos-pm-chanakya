@@ -2,6 +2,7 @@ import { NormalizedItem, SourceItem, SourceProvider } from '../types';
 import { canonicalizeUrl, getDomain, hashId } from '../utils/url';
 import { decodeHtmlEntities, sanitize } from '../utils/text';
 import { nowUtc, subtractHours, toIsoString } from '../utils/time';
+import { XMLParser } from 'fast-xml-parser';
 
 type Logger = (phase: string, details: Record<string, unknown>) => void;
 
@@ -9,7 +10,7 @@ export interface BrokerEnv {
 	NEWSAPI_KEY?: string;
 	NEWSAPI_USER_AGENT?: string;
 	GDELT_ENABLED?: string;
-	BING_NEWS_ENABLED?: string;
+	GOOGLE_NEWS_ENABLED?: string;
 }
 
 const WINDOW_HOURS = 48;
@@ -24,8 +25,8 @@ export async function ingestDynamicSources(env: BrokerEnv, logger: Logger = DEFA
 	if (env.GDELT_ENABLED !== '0') {
 		adapterPromises.push(gdeltAdapter(env, since, logger));
 	}
-	if (env.BING_NEWS_ENABLED !== '0') {
-		adapterPromises.push(bingNewsRssAdapter(env, since, logger));
+	if (env.GOOGLE_NEWS_ENABLED !== '0') {
+		adapterPromises.push(googleNewsRssAdapter(env, since, logger));
 	}
 
 	const settled = await Promise.allSettled(adapterPromises);
@@ -152,7 +153,12 @@ async function gdeltAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promi
 	url.searchParams.set('maxrecords', '75');
 	url.searchParams.set('query', buildGdeltQuery());
 
-	const res = await fetch(url.toString());
+	const res = await fetch(url.toString(), {
+		headers: {
+			'User-Agent': 'HotLaunchDiscovery/1.0 (+https://product.example)',
+			Accept: 'application/rss+xml, application/xml;q=0.9, */*;q=0.8',
+		},
+	});
 	if (!res.ok) {
 		logger('ingest_dynamic_gdelt_error', { status: res.status, body: await safeSnippet(res) });
 		return [];
@@ -196,59 +202,64 @@ function mapGdeltArticle(article: any): SourceItem | null {
 }
 
 
-async function bingNewsRssAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promise<SourceItem[]> {
-	const url = new URL('https://www.bing.com/news/search');
-	url.searchParams.set('q', '(platform OR fintech OR payments OR marketplace OR "artificial intelligence OR "policy" OR "model launch")');
-	url.searchParams.set('format', 'RSS');
-	url.searchParams.set('qft', '+filterui:age-lt48hr');
-	url.searchParams.set('sfpt', '1');
-	url.searchParams.set('form', 'RSRSON');
+async function googleNewsRssAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promise<SourceItem[]> {
+	const url = new URL('https://news.google.com/rss/search');
+	const query = '(platform OR fintech OR payments OR marketplace OR "artificial intelligence" OR "policy" OR "model launch")';
+	url.searchParams.set('q', `${query} when:48h`);
+	url.searchParams.set('hl', 'en-US');
+	url.searchParams.set('gl', 'US');
+	url.searchParams.set('ceid', 'US:en');
+
 
 	const res = await fetch(url.toString());
 	if (!res.ok) {
-		logger('ingest_dynamic_bing_error', { status: res.status, body: await safeSnippet(res) });
+		logger('ingest_dynamic_google_error', { status: res.status, body: await safeSnippet(res) });
 		return [];
 	}
 
 	const xml = await res.text();
 	const items = parseRss(xml);
-	logger('ingest_dynamic_bing_ok', { count: items.length });
+	logger('ingest_dynamic_google_ok', { count: items.length });
 	const sinceMs = since.getTime();
 	return items
 		.filter((item) => Date.parse(item.publishedAt) >= sinceMs)
-		.map((item) => ({ ...item, provider: 'bing-rss' as SourceProvider }));
+		.map((item) => ({ ...item, provider: 'google-rss' as SourceProvider }));
 }
 
+const xmlParser = new XMLParser({ ignoreAttributes: false, trimValues: true });
+
 function parseRss(xml: string): SourceItem[] {
+	let parsed: any;
+	try {
+		parsed = xmlParser.parse(xml);
+	} catch (err) {
+		return [];
+	}
+	const channel = parsed?.rss?.channel || parsed?.channel;
+	if (!channel) return [];
+	const rawItems = channel.item || channel.items || [];
+	const list = Array.isArray(rawItems) ? rawItems : [rawItems];
 	const items: SourceItem[] = [];
-	const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
-	let match: RegExpExecArray | null;
-	while ((match = itemRegex.exec(xml))) {
-		const block = match[1];
-		const title = extractTag(block, 'title');
-		const link = extractTag(block, 'link');
-		const pubDate = extractTag(block, 'pubDate');
+	for (const rawItem of list) {
+		if (!rawItem) continue;
+		const title = sanitize(rawItem.title);
+		const link = typeof rawItem.link === 'object' ? rawItem.link?.['@_href'] || rawItem.link?.['#text'] : rawItem.link;
+		const pubDate = sanitize(rawItem.pubDate || rawItem.published || '');
 		if (!title || !link || !pubDate) continue;
 		const publishedAt = new Date(pubDate);
 		if (Number.isNaN(publishedAt.getTime())) continue;
+		const source = rawItem.source && typeof rawItem.source === 'object' ? rawItem.source['#text'] || rawItem.source['@_url'] : rawItem.source;
+		const description = rawItem.description && typeof rawItem.description === 'object' ? rawItem.description['#text'] : rawItem.description;
 		items.push({
 			title: decodeHtmlEntities(title),
-			url: decodeHtmlEntities(link),
+			url: decodeHtmlEntities(String(link)),
 			publishedAt: publishedAt.toISOString(),
-			source: decodeHtmlEntities(extractTag(block, 'source') || 'Bing News'),
-			description: decodeHtmlEntities(extractTag(block, 'description') || ''),
-			provider: 'bing-rss',
+			source: decodeHtmlEntities(sanitize(source || 'Google News')),
+			description: decodeHtmlEntities(sanitize(description || '')),
+			provider: 'google-rss',
 		});
 	}
 	return items;
-}
-
-function extractTag(block: string, tag: string): string | null {
-	const regex = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i');
-	const match = regex.exec(block);
-	if (!match) return null;
-	const raw = match[1].replace(/<!\[CDATA\[|]]>/g, '');
-	return sanitize(raw);
 }
 
 async function safeSnippet(res: Response): Promise<string> {
@@ -262,5 +273,5 @@ async function safeSnippet(res: Response): Promise<string> {
 export const adapters = {
 	newsApiAdapter,
 	gdeltAdapter,
-	bingNewsRssAdapter,
+	googleNewsRssAdapter,
 };

@@ -31,18 +31,7 @@ describe('dynamic ingest broker', () => {
 				},
 			],
 		};
-		const gdeltPayload = {
-			articles: [
-				{
-					title: 'CheckoutFlow integrates multi-wallet checkout',
-					url: 'https://news.example.com/story/a',
-					seendate: nowIso,
-					source: 'GDELT Mirror',
-					language: 'en',
-				},
-			],
-		};
-		const bingRss = `<?xml version="1.0"?><rss><channel><item><title>Policy board sets new pricing terms</title><link>https://bing.example.com/policy</link><pubDate>${new Date().toUTCString()}</pubDate><description>Policy change</description></item></channel></rss>`;
+		const googleRss = `<?xml version="1.0"?><rss><channel><item><title>Policy board sets new pricing terms</title><link>https://google.example.com/policy</link><pubDate>${new Date().toUTCString()}</pubDate><description>Policy change</description></item></channel></rss>`;
 
 		const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
 			const url = typeof input === 'string' ? input : input.toString();
@@ -52,14 +41,8 @@ describe('dynamic ingest broker', () => {
 					headers: { 'Content-Type': 'application/json' },
 				});
 			}
-			if (url.includes('gdeltproject.org')) {
-				return new Response(JSON.stringify(gdeltPayload), {
-					status: 200,
-					headers: { 'Content-Type': 'application/json' },
-				});
-			}
-			if (url.includes('bing.com')) {
-				return new Response(bingRss, {
+			if (url.includes('news.google.com')) {
+				return new Response(googleRss, {
 					status: 200,
 					headers: { 'Content-Type': 'application/rss+xml' },
 				});
@@ -72,17 +55,17 @@ describe('dynamic ingest broker', () => {
 		const env = {
 			SEEN: {} as KVNamespace,
 			NEWSAPI_KEY: 'demo',
-			GDELT_ENABLED: '1',
-			BING_NEWS_ENABLED: '1',
+			GDELT_ENABLED: '0',
+			GOOGLE_NEWS_ENABLED: '1',
 		};
 
 		const items = await ingestDynamicSources(env, () => {});
 
-		expect(fetchMock).toHaveBeenCalledTimes(3);
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 		expect(items.length).toBe(2);
 		const urls = items.map((i) => i.url);
 		expect(new Set(urls).size).toBe(2);
 		expect(items.every((i) => typeof i.id === 'string' && i.id.length > 10)).toBe(true);
-		expect(items.find((i) => i.provider === 'bing-rss')).toBeTruthy();
+		expect(items.find((i) => i.provider === 'google-rss')).toBeTruthy();
 	});
 });

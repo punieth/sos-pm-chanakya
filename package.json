@@ -16,6 +16,7 @@
 		"wrangler": "^4.40.2"
 	},
 	"dependencies": {
-		"compromise": "^14.14.4"
+		"compromise": "^14.14.4",
+		"fast-xml-parser": "^5.2.5"
 	}
 }

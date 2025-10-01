@@ -58,7 +58,7 @@ export async function ingestDynamicDiscovery(
 			items: [],
 			allItems: [],
 			stats: { scanned: 0, classified: 0, clusters: 0, impactQualified: 0, published: 0, noveltyHits: 0, providerCounts: {} },
-			providerCounts: { newsapi: 0, gdelt: 0, 'bing-rss': 0 },
+			providerCounts: { newsapi: 0, gdelt: 0, 'google-rss': 0 },
 			clusters: [],
 		};
 	}
@@ -66,7 +66,7 @@ export async function ingestDynamicDiscovery(
 	const providerCounts = normalized.reduce<Record<SourceProvider, number>>((acc, item) => {
 		acc[item.provider] = (acc[item.provider] || 0) + 1;
 		return acc;
-	}, { newsapi: 0, gdelt: 0, 'bing-rss': 0 });
+	}, { newsapi: 0, gdelt: 0, 'google-rss': 0 });
 
 	const graphUpdate = await updateEntityGraph(normalized, { kv: env.SEEN, logger });
 	const noveltyHits = Object.values(graphUpdate.itemNovelty).filter(Boolean).length;

@@ -1,4 +1,4 @@
-export type SourceProvider = 'newsapi' | 'gdelt' | 'bing-rss';
+export type SourceProvider = 'newsapi' | 'gdelt' | 'google-rss';
 
 export interface SourceItem {
 	title: string;
