@@ -1,0 +1,2017 @@
+{
+    "ok": true,
+    "batchId": "2025-10-01",
+    "startedAt": "2025-10-01T03:31:59.389Z",
+    "dynamicDiscovery": {
+        "stats": {
+            "scanned": 50,
+            "classified": 50,
+            "clusters": 50,
+            "impactQualified": 50,
+            "published": 50,
+            "noveltyHits": 0
+        },
+        "notionCreated": 50,
+        "items": [
+            {
+                "url": "https://www.livemint.com/money/personal-finance/what-does-current-outstanding-mean-in-credit-cards-an-explainer-credit-score-11759138431893.html",
+                "impact": 0.42229339315399506,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.ndtvprofit.com/business/stripe-joins-with-openai-to-allow-etsy-purchases-via-chatgpt",
+                "impact": 0.4215345607895966,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.ozbargain.com.au/node/926346",
+                "impact": 0.4201716797930998,
+                "eventClass": "PAYMENTS",
+                "created": true
+            },
+            {
+                "url": "https://skift.com/2025/09/29/how-quick-commerce-is-changing-travel-marketing-plus-skift-global-forum-east-returns",
+                "impact": 0.42005929357014915,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.finextra.com/blogposting/29474/googles-agent-payments-protocol-ap2-a-new-chapter-in-agentic-commerce",
+                "impact": 0.41777324460897813,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/news/international/us/did-anyone-win-160-million-jackpot-on-monday-night-check-winning-powerball-numbers-for-september-29-drawing/articleshow/124224689.cms",
+                "impact": 0.3890346734082794,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/news/india/government-urges-gaming-industry-to-address-addiction-security-risks/articleshow/124224559.cms",
+                "impact": 0.3881020037073858,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/ecoline-exim-ipo-debuts-today-gmp-signals-flat-listing-ahead/articleshow/124224418.cms",
+                "impact": 0.38733158286275365,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/matrix-geo-solutions-ipo-listing-today-gmp-suggests-cautious-debut-despite-strong-subscription/articleshow/124224388.cms",
+                "impact": 0.3870508765696909,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/true-colors-ipo-listing-today-gmp-hints-at-muted-listing/articleshow/124224354.cms",
+                "impact": 0.3868544048556615,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/news/international/us/nobody-likes-democrats-trumps-ai-video-on-truth-social-mocks-democratic-partys-voter-base-and-woke-policies/articleshow/124224305.cms",
+                "impact": 0.38669756117370596,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/tata-motors-shares-in-focus-as-moodys-downgrades-outlook-after-jlr-cyber-incident/articleshow/124224310.cms",
+                "impact": 0.3866358327729894,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/aptus-pharma-shares-to-debut-today-heres-what-gmp-indicates-ahead-of-listing/articleshow/124224165.cms",
+                "impact": 0.38605493526356954,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://economictimes.indiatimes.com/tech/technology/electronic-arts-to-be-bought-in-largest-ever-private-equity-buyout-valued-at-55-billion/articleshow/124224085.cms",
+                "impact": 0.38565471867981826,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.globalsecurity.org/wmd/library/news/germany/2025/germany-250929-rferl01.htm",
+                "impact": 0.32238293277560925,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://finance.yahoo.com/news/ethereum-co-founder-vitalik-buterin-033111801.html",
+                "impact": 0.3223779565249958,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.livemint.com/industry/split-screen-videos-are-the-new-copyright-infringement-loophole-11759138942957.html",
+                "impact": 0.3222946365722623,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.coindesk.com/business/2025/09/29/keel-debuts-as-sky-s-solana-focused-star-with-a-usd2-5b-roadmap-to-boost-rwas-and-defi",
+                "impact": 0.3222896629279761,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.itnews.com.au/video/ai-is-everywhere-but-whos-accountable-620504",
+                "impact": 0.3222896629279761,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://pypi.org/project/ljc-mcp-server",
+                "impact": 0.3222125812556211,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.aljazeera.com/economy/2025/9/30/youtube-to-pay-24-5m-to-settle-lawsuit-over-trumps-account-suspension",
+                "impact": 0.32208332436270953,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.thestar.com.my/news/nation/2025/09/30/ensure-culture-heritage-preserved-in-projects-says-nga",
+                "impact": 0.321916858269826,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.fool.com.au/2025/09/30/asx-small-cap-chasing-global-growth-with-a-bold-ai-strategy",
+                "impact": 0.32144649818369064,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://7news.com.au/news/dyi-mortgage-cut-david-kochs-tips-for-homeowners-to-save-with-rba-expected-to-hold-official-rates--c-20186615",
+                "impact": 0.3214316167458477,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://freerepublic.com/focus/f-news/4343408/posts",
+                "impact": 0.3210437024895124,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.vulture.com/article/youtube-trump-lawsuit-settled.html",
+                "impact": 0.3210115006467895,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://siliconangle.com/2025/09/29/infrastructure-operations-leaders-can-develop-strategy-success-2026",
+                "impact": 0.3209285338603843,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.thedrum.com/news/2025/09/30/judge-the-day-outernet-s-jessica-dracup-holland-says-real-cut-through-starts-real",
+                "impact": 0.3208988196310772,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://pypi.org/project/pyasic-rs",
+                "impact": 0.32081216884226516,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.digitimes.com/news/a20250925PD227/vehicle-cybersecurity-sk-on-battery-supply-chain.html",
+                "impact": 0.32047074510089774,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://freerepublic.com/focus/f-chat/4343405/posts",
+                "impact": 0.32028904817364706,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.ndtvprofit.com/markets/algo-trading-step-by-step-guide-to-range-breakout-strategy",
+                "impact": 0.3202149157707438,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://finance.yahoo.com/news/precision-optics-corp-inc-poci-030110069.html",
+                "impact": 0.32014574100870646,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.forbes.com/sites/douggollan/2025/09/29/flexjet-makes-another-big-private-jet-order-but-will-it-fly",
+                "impact": 0.32008399045609465,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.forbes.com/sites/llewellynking/2025/09/29/many-believe-the-ai-bubble-will-burst-affecting-electric-utilities",
+                "impact": 0.31985191494501986,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://news.samsung.com/global/samsung-art-store-expands-its-modern-and-contemporary-art-offering-with-new-tate-collection",
+                "impact": 0.3193599290742624,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.ndtvprofit.com/world/google-to-pay-245-million-to-end-trump-jan-6-youtube-ban-lawsuit",
+                "impact": 0.31861660798241187,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://freerepublic.com/focus/f-news/4343399/posts",
+                "impact": 0.3185662135078235,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.rediff.com/movies/report/how-trumps-latest-threat-will-hit-indian-movies/20250930.htm",
+                "impact": 0.3184777351821855,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://biztoc.com/x/849d19fd3dac1441",
+                "impact": 0.3184715917666094,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.forbes.com/sites/catward/2025/09/29/3-potential-paths-forward-for-nonprofits-and-ai",
+                "impact": 0.31813879585740695,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://freerepublic.com/focus/f-chat/4343397/posts",
+                "impact": 0.3180479821590014,
+                "eventClass": "PLATFORM_POLICY",
+                "created": true
+            },
+            {
+                "url": "https://pypi.org/project/random-name-generator-rendev",
+                "impact": 0.31798172906432187,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.japantimes.co.jp/commentary/2025/09/30/japan/the-last-ldp-election",
+                "impact": 0.31784435923256793,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.ndtvprofit.com/markets/lufthansa-set-to-cut-4000-jobs-by-2030-as-artificial-intelligence-and-automation-take-over",
+                "impact": 0.31780389551270244,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.abc.net.au/news/2025-09-30/qld-police-investigating-death-mother-and-daughter-kenmore-hills/105833308",
+                "impact": 0.3177891827099685,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://pypi.org/project/aignostics/0.2.165",
+                "impact": 0.31775853322523456,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://www.abc.net.au/news/2025-09-30/why-bad-bunny-is-a-controversial-choice-for-super-bowl/105834094",
+                "impact": 0.3175722479706545,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://bleedingcool.com/comics/masters-of-the-universe-andra-preview-man-at-arms-meltdown",
+                "impact": 0.3175538704788063,
+                "eventClass": "OTHER",
+                "created": true
+            },
+            {
+                "url": "https://cointelegraph.com/news/bitmine-bit-digital-ethereum-treasury-race-2025",
+                "impact": 0.31751221876776575,
+                "eventClass": "OTHER",
+                "created": true
+            }
+        ]
+    },
+    "ingest": {
+        "totals": {
+            "scanned": 9,
+            "created": 9,
+            "skippedSeen": 0,
+            "skippedNoise": 0,
+            "skippedOld": 0
+        },
+        "types": {
+            "Platform": 2,
+            "Rails": 3,
+            "Marketplace": 0,
+            "Coverage": 4,
+            "Long-form": 0
+        },
+        "feeds": {
+            "https://developer.apple.com/news/rss/news.rss": {
+                "scanned": 2,
+                "created": 2,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": [
+                    "Upcoming Currency Change in Bulgaria",
+                    "Get ready with the latest beta releases"
+                ]
+            },
+            "https://www.trai.gov.in/taxonomy/term/19/feed": {
+                "scanned": 3,
+                "created": 3,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": [
+                    "TRAI's Response to the Back Reference dated 21.07.2025 received from DoT on Recommendations on Method of allocation of spectrum for Public Mobile Radio Trunking Service (PMRTS) including auction, as a transparent mechanism",
+                    "Recommendations on Reserve Price for Auction of FM Radio channels",
+                    "TRAI's Response to the Back Reference dated 03.07.2025 received from DoT on Recommendations on the Terms and Conditions of Network Authorisations to be Granted Under the Telecommunications Act, 2023"
+                ]
+            },
+            "https://www.npci.org.in/whats-new/press-releases/rss": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://pib.gov.in/RssFeeds/TopNewsRSS.aspx": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://pib.gov.in/RssFeeds/RssFeed_1.aspx": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://www.meity.gov.in/news-rss": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://cert-in.org.in/RssFeeds/AdvisoryRSS.xml": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://www.rbi.org.in/Rss/PressReleases.xml": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://www.sebi.gov.in/sebiweb/rss/MediaRSS.do": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://www.ondc.org/blog/feed/": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://www.uidai.gov.in/en/component/obrss/press-releases?format=raw": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://sellercentral.amazon.in/forums/c/announcements/7.rss": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://razorpay.com/blog/rss.xml": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://paytm.com/blog/feed/": {
+                "scanned": 0,
+                "created": 0,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": []
+            },
+            "https://www.medianama.com/feed/": {
+                "scanned": 2,
+                "created": 2,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": [
+                    "Spanish Satcom company Sateliot Warns Against &#8216;Overly Restrictive&#8217; Security Measures in India&#8217;s National Telecom Policy",
+                    "Explained: What California’s Frontier AI Law Requires From Big Tech Companies"
+                ]
+            },
+            "https://inc42.com/feed/": {
+                "scanned": 2,
+                "created": 2,
+                "skippedSeen": 0,
+                "skippedNoise": 0,
+                "skippedOld": 0,
+                "samples": [
+                    "Q3 Funding Check, Will Zoho&#8217;s Arattai Stick &#038; More",
+                    "Startup Funding Dips 38% To $2.1 Bn In Q3 2025"
+                ]
+            }
+        }
+    },
+    "enrich": {
+        "attempted": 50,
+        "ok": 0,
+        "failed": 0,
+        "items": [
+            {
+                "id": "27f42d2d-9aa3-8185-b2a2-c61e1277ddc3",
+                "title": "Inc42",
+                "url": "https://inc42.com/buzz/q3-funding-check-will-zohos-arattai-stick-more/",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Q3 Funding Check, Will Zoho&#039;s Arattai Stick &amp; More tag --> Skip to content MEDIA DATALABS REPORTS EVENTS COURSES INC42 COURSES D2CX D2CX by Inc42 is a 12-week hands-on program to help you level up your D2C game. Learn from India&#039;s top 1% D2C founders and experts through actionable insights, proven strategies and tactics on how to 10X your D2C brand. view ManagementX ManagementX by Inc42 – India’s first Startup Management Program is a 6-month hands-on program that will take you on an intense journey that shatters the outdated “employee mindset” and equips you with the “leader mindset”. view D2CX Foundations D2CX Foundations by Inc42 is a 6 week hands-on program to help you launch your D2C brand successfully and profitably. Learn from India’s top 1% of D2C founders &amp; experts through actionable insights, proven strategies and tactics on how to launch a successful D2C Brand in 6 weeks. view BRANDLABS ABOUT AI Workshop FAST42 2026 BIGShift --> NEWS IN-DEPTH STARTUPS NEWSLETTERS PODCAST INDUSTRY INDUSTRY Stay ahead with the latest news, funding, startup financials, &amp; governments policies on the hottest tech industries in the Indian startup ecosystem. Fintech Travel Tech Electric Vehicle Health Tech Edtech IT Logistics Retail Ecommerce Startup Ecosystem Enterprise Tech Clean Tech Consumer Internet Agritech MORE MORE ON INC42 Get featured, partner or work with Ind"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8176-ad9c-e29bced58f14",
+                "title": "Inc42",
+                "url": "https://inc42.com/buzz/startup-funding-dips-38-to-2-1-bn-in-q3-2025/",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Startup Funding Dips 38% To $2.1 Bn In Q3 2025 tag --> Skip to content MEDIA DATALABS REPORTS EVENTS COURSES INC42 COURSES D2CX D2CX by Inc42 is a 12-week hands-on program to help you level up your D2C game. Learn from India&#039;s top 1% D2C founders and experts through actionable insights, proven strategies and tactics on how to 10X your D2C brand. view ManagementX ManagementX by Inc42 – India’s first Startup Management Program is a 6-month hands-on program that will take you on an intense journey that shatters the outdated “employee mindset” and equips you with the “leader mindset”. view D2CX Foundations D2CX Foundations by Inc42 is a 6 week hands-on program to help you launch your D2C brand successfully and profitably. Learn from India’s top 1% of D2C founders &amp; experts through actionable insights, proven strategies and tactics on how to launch a successful D2C Brand in 6 weeks. view BRANDLABS ABOUT AI Workshop FAST42 2026 BIGShift --> NEWS IN-DEPTH STARTUPS NEWSLETTERS PODCAST INDUSTRY INDUSTRY Stay ahead with the latest news, funding, startup financials, &amp; governments policies on the hottest tech industries in the Indian startup ecosystem. Fintech Travel Tech Electric Vehicle Health Tech Edtech IT Logistics Retail Ecommerce Startup Ecosystem Enterprise Tech Clean Tech Consumer Internet Agritech MORE MORE ON INC42 Get featured, partner or work with India&#039;s #1"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81d9-90f9-ec59c814c357",
+                "title": "Medianama",
+                "url": "https://www.medianama.com/2025/09/223-rti-india-telecom-policy-sateliot-spectrum-warning-wifi/",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Sateliot Urges India to Prioritize Satcom Spectrum in Policy Skip to content &times; Search for: MEDIANAMA Technology and policy in India Latest Newsletter AI Focus Guides Summaries Privacy Consultations Freedom Of Expression E-commerce Competition Facial Recognition Net Neutrality Platform Regulation For You Anonymous Tip Ask us to file an RTI Support a MediaNama event Menu Spanish Satcom company Sateliot Warns Against &#8216;Overly Restrictive&#8217; Security Measures in India&#8217;s National Telecom Policy Kamya Pandey on September 30, 2025 September 30, 2025 5 minute read 5 minute read Spanish satellite communication company Sateliot has cautioned the Indian government against employing overly restrictive measures on satcom companies under the National Telecom Policy 2025. “This can be seen in the goal of monitoring satellite communications to ensure cybersecurity, data integrity, and protection against unauthorized access or interference. Such a goal is laudable but can be interpreted in different ways,” the company argued. Sateliot explained that it would support regulations that mandate internationally recognized best practices for security. However, it urged the government to ensure that any security measures it employs “remain proportionate and do not create unnecessary barriers to the adoption of innovative technologies.” Sateliot supports the policy’s goal of establ"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8140-a9a5-c574ca924d6e",
+                "title": "Medianama",
+                "url": "https://www.medianama.com/2025/09/223-californias-frontier-ai-law-big-tech-companies/",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "What Does California’s New AI Law Require From Big Tech Outfits? Skip to content &times; Search for: MEDIANAMA Technology and policy in India Latest Newsletter AI Focus Guides Summaries Privacy Consultations Freedom Of Expression E-commerce Competition Facial Recognition Net Neutrality Platform Regulation For You Anonymous Tip Ask us to file an RTI Support a MediaNama event Menu Explained: What California’s Frontier AI Law Requires From Big Tech Companies Aakriti Bansal on September 30, 2025 September 30, 2025 6 minute read 6 minute read California&#8217;s Governor, Gavin Newsom signed Senate Bill (SB) 53 into law , which makes it the first US state to regulate frontier AI models: the advanced systems that demand vast computing resources to train. The law requires companies developing these models to follow new rules on transparency, accountability, and risk management. It builds on recommendations from California’s AI Policy Working Group, which released a report earlier this year calling for enforceable safety standards. Importantly, the state&#8217;s legislature noted that voluntary commitments from AI developers create gaps in oversight. And SB 53 responds by converting these commitments into binding legal obligations. Scope and key definitions The Act applies only to the most resourced companies at the frontier of AI development, not to smaller players. To define this scop"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-819e-8e76-f8bcdbe5ae2b",
+                "title": "TRAI",
+                "url": "http://www.trai.gov.in/trais-response-back-reference-dated-21072025-received-dot-recommendations-method-allocation",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "TRAI&#039;s Response to the Back Reference dated 21.07.2025 received from DoT on Recommendations on Method of allocation of spectrum for Public Mobile Radio Trunking Service (PMRTS) including auction, as a transparent mechanism | Telecom Regulatory Authority of India Skip to main content Consumer Researcher / Student Service Providers Startup / Consultant SKIP TO MAIN CONTENT SCREEN READER ACCESS Color Blindness English हिंदी भारतीय दूरसंचार विनियामक प्राधिकरण Telecom Regulatory Authority of India (IS/ISO 9001:2015 Certified Organisation) भारतीय दूरसंचार विनियामक प्राधिकरण Telecom Regulatory Authority of India (IS/ISO 9001:2015 Certified Organisation) --> User Login Go to old website --> --> Home About Us About Us sub-navigation History Organization Structure Annual Reports Acts and Policies Administrative Rules Activities of TRAI Who&#039;s Who Telecom Telecom sub-navigation Telecom Tariff Interconnection Quality of Service Spectrum Licensing Internet &amp; Broadband VAS Mobile Number Portability Consumer Initiatives UCC Consumer Protection Complaint Redressal Directory Services Other Initiatives Intelligent Network Green Telecom Telecom Infrastructure Data Centres NGN IP v6 Emergency Telecommunication Cloud Computing Net Neutrality Telecom Equipment Manufacturing Ease of doing Business Telecommunication Identifiers Broadcasting Broadcasting sub-navigation Tariff Orders Interc"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8147-bc40-fb36d6a78c3d",
+                "title": "Yahoo Entertainment",
+                "url": "https://finance.yahoo.com/news/ethereum-co-founder-vitalik-buterin-033111801.html",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Vitalik Buterin, the co-founder of Ethereum (CRYPTO: ETH), sold memecoins he got for free on Sunday, sparking a bit of intrigue in the cryptocurrency..."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-810b-9519-e425c6ceeaa2",
+                "title": "Globalsecurity.org",
+                "url": "https://www.globalsecurity.org/wmd/library/news/germany/2025/germany-250929-rferl01.htm",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "A member of the Hamburg city assembly from Germany's Alternative for Deutschland (AfD) party, Robert Risch, attended a far-right forum in Russia this month that drew extreme right-wing politicians from several countries, an examination of images from the conf…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-814b-b00c-d48040616675",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/news/international/us/did-anyone-win-160-million-jackpot-on-monday-night-check-winning-powerball-numbers-for-september-29-drawing/articleshow/124224689.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "The Powerball jackpot climbed to an estimated $160 million for the Monday's (September 29) drawing after no one matched all six Powerball numbers in Saturday's drawing. The winner will have the option of taking the full $160 million as an annuity paid over 3…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8132-abfb-c235f6434d53",
+                "title": "iTnews",
+                "url": "https://www.itnews.com.au/video/ai-is-everywhere-but-whos-accountable-620504",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "As artificial intelligence becomes embedded in nearly every sector, experts warn that the pace of adoption has far outstripped the development of governance."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81bd-ba9f-e94ec6109e82",
+                "title": "CoinDesk",
+                "url": "https://www.coindesk.com/business/2025/09/29/keel-debuts-as-sky-s-solana-focused-star-with-a-usd2-5b-roadmap-to-boost-rwas-and-defi",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "The new protocol will channel USDS stablecoin reserves into Solana-based lending markets and real-world asset strategies."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81bb-9f37-cec2ad2974e5",
+                "title": "Livemint",
+                "url": "https://www.livemint.com/industry/split-screen-videos-are-the-new-copyright-infringement-loophole-11759138942957.html",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Legitimate artists use it for creative storytelling, but ‘repost’ accounts leverage it to illegally share viral content, often pairing it with a looped video to fool copyright algorithms."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-a7f5-c12c2a94b618",
+                "title": "Livemint",
+                "url": "https://www.livemint.com/money/personal-finance/what-does-current-outstanding-mean-in-credit-cards-an-explainer-credit-score-11759138431893.html",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "It is important to understand current outstanding in credit cards, including its impact on repayments and credit score, the consequences of non-payment, how it is calculated, and effective ways to manage it."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81bf-b1c2-fd9a07c2e29b",
+                "title": "Pypi.org",
+                "url": "https://pypi.org/project/ljc-mcp-server",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Add your description here"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81e9-813f-defad9272517",
+                "title": "Al Jazeera English",
+                "url": "https://www.aljazeera.com/economy/2025/9/30/youtube-to-pay-24-5m-to-settle-lawsuit-over-trumps-account-suspension",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Video platform settles lawsuit filed in response to Trump's suspension over the January 6, 2021, riot at US Capitol."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81e3-bf72-c03a1d2ddd54",
+                "title": "The Star Online",
+                "url": "https://www.thestar.com.my/news/nation/2025/09/30/ensure-culture-heritage-preserved-in-projects-says-nga",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "KUALA LUMPUR: Future development projects should incorporate and preserve national culture and heritage to better position Malaysia as a tourism destination, says Housing and Local Government Minister Nga Kor Ming. Read full story"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8118-9b18-d08f9a1f63e2",
+                "title": "Ndtvprofit.com",
+                "url": "https://www.ndtvprofit.com/business/stripe-joins-with-openai-to-allow-etsy-purchases-via-chatgpt",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "The payment-processing company Stripe Inc. is working with OpenAI to allow US shoppers to buy products through ChatGPT, the popular artificial-intelligence tool. The feature is being rolled out to let ChatGPT users purchase goods from Etsy Inc., with plans to…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-819e-8495-da5d3a8e759f",
+                "title": "7NEWS.com.au",
+                "url": "https://7news.com.au/news/dyi-mortgage-cut-david-kochs-tips-for-homeowners-to-save-with-rba-expected-to-hold-official-rates--c-20186615",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "DYI mortgage cut: David Koch’s tips for homeowners to save with RBA expected to hold official rates7news.com.au"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-812a-875f-ed3e3e4bcf86",
+                "title": "Motley Fool Australia",
+                "url": "https://www.fool.com.au/2025/09/30/asx-small-cap-chasing-global-growth-with-a-bold-ai-strategy",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "From broadcast dominance to government wins, one ASX small cap is betting its future on AI. The post ASX small cap chasing global growth with a bold AI strategy appeared first on The Motley Fool Australia."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81ff-83d5-f79c861af01c",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/news/india/government-urges-gaming-industry-to-address-addiction-security-risks/articleshow/124224559.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "The Centre urged the gaming industry to tackle addiction and chat misuse. A new Online Gaming Act 2025 will ensure responsible sector growth. Regulation involves multiple ministries. The government seeks industry support for India-first intellectual propertie…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8184-94da-c1952abb04df",
+                "title": "Freerepublic.com",
+                "url": "https://freerepublic.com/focus/f-news/4343408/posts",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Tucker Carlson's most current interview of Wikipedia co-founder Larry Sanger (at https://x.com/i/status/1972716529608237173) brings up a nine-point list of Wikipedia policy reforms, of interest since the interview asserts that Wikipedia has a gargantuan influ…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81a4-9a7c-f1252d6c6996",
+                "title": "Vulture",
+                "url": "https://www.vulture.com/article/youtube-trump-lawsuit-settled.html",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Following in the footsteps of Meta and X, YouTube and its parent company, Alphabet, settled a multi-million dollar lawsuit from President Trump."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81ba-892c-e3a5dc430931",
+                "title": "The Drum",
+                "url": "https://www.thedrum.com/news/2025/09/30/judge-the-day-outernet-s-jessica-dracup-holland-says-real-cut-through-starts-real",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "As a juror in the Advertising category at The Drum Awards Festival, Jessica Dracup-Holland explains why AI should augment rather than overshadow, why bold brand-building moments matter more than ever, and why measurement remains advertising’s stubborn blind s…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8197-b511-d62a15642fd8",
+                "title": "SiliconANGLE News",
+                "url": "https://siliconangle.com/2025/09/29/infrastructure-operations-leaders-can-develop-strategy-success-2026",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Leaders for infrastructure and information technology operations, or I&O for short, must cope with unpredictable demand for new services, as well as workforce skills deficiencies and spiraling technical debt. With this in mind, they are still responsible for …"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-9f03-d3fa6c9681d7",
+                "title": "Pypi.org",
+                "url": "https://pypi.org/project/pyasic-rs",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Python bindings for asic-rs"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81c3-a36f-fe970370db24",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/ecoline-exim-ipo-debuts-today-gmp-signals-flat-listing-ahead/articleshow/124224418.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Sustainable packaging manufacturer Ecoline Exim, with exports to over 27 countries, is set to list on the NSE SME platform on September 30. Its IPO drew healthy institutional participation, but subdued retail interest and zero GMP point to cautious listing-da…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-818f-9d09-dfd65111753d",
+                "title": "Digitimes",
+                "url": "https://www.digitimes.com/news/a20250925PD227/vehicle-cybersecurity-sk-on-battery-supply-chain.html",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "As the global mobility industry undergoes rapid digitalization and platform integration, the promise of greater efficiency, user experience, and innovative business models is becoming a reality. However, so too are the growing cybersecurity risks that threate…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81f7-a012-c371a59cff10",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/matrix-geo-solutions-ipo-listing-today-gmp-suggests-cautious-debut-despite-strong-subscription/articleshow/124224388.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Matrix Geo Solutions IPO closed with healthy investor interest. The company will list on NSE SME on September 30. The issue was subscribed 7.69 times overall. Qualified institutional buyers led demand. The firm specializes in geospatial and drone technology. …"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8104-a7ab-deb4fbb4c1fb",
+                "title": "Freerepublic.com",
+                "url": "https://freerepublic.com/focus/f-chat/4343405/posts",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "YouTube has agreed to pay $22 million to settle a lawsuit filed by President Donald Trump after the company suspended his account over the January 6, 2021 attack on the Capitol, according to a court filing Monday. The online video platform, a subsidiary of Go…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8194-8ac6-e7be9e7cad8f",
+                "title": "Ndtvprofit.com",
+                "url": "https://www.ndtvprofit.com/markets/algo-trading-step-by-step-guide-to-range-breakout-strategy",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "In our previous article, we outlined the basics of algorithmic trading and explained how it differs from manual trading. This article sets out a step-by-step guide for retail investors to create, test, and run a range breakout strategy through an algorithmic …"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81e7-ac77-d0645e577238",
+                "title": "Yahoo Entertainment",
+                "url": "https://finance.yahoo.com/news/precision-optics-corp-inc-poci-030110069.html",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Precision Optics Corp Inc (POCI) reports its highest quarterly revenue ever, outlines ambitious growth strategies, and addresses production challenges."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8124-ae58-e07ad1bc4a46",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/true-colors-ipo-listing-today-gmp-hints-at-muted-listing/articleshow/124224354.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "True Colors, a digital textile printing solutions provider, will debut on the BSE SME platform on September 30. Its IPO saw strong investor demand, subscribed over 45 times. Despite this, grey market signals indicate limited listing gains. The company reporte…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-819d-8752-c4a0528fed32",
+                "title": "Ozbargain.com.au",
+                "url": "https://www.ozbargain.com.au/node/926346",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Claim this offer Shop with participating merchants. Pay with your active (used to make a purchase in the last 30 days) NAB personal Visa debit card, credit card or NAB Now Pay Later digital card. …"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-813d-8818-eed97cdac948",
+                "title": "Forbes",
+                "url": "https://www.forbes.com/sites/douggollan/2025/09/29/flexjet-makes-another-big-private-jet-order-but-will-it-fly",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Otto Aerospace has signed Flexjet as the launch customer of its new Phantom 3500 business jet, set to debut in 2030."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-814f-bb4c-ce36fe41da4b",
+                "title": "Skift",
+                "url": "https://skift.com/2025/09/29/how-quick-commerce-is-changing-travel-marketing-plus-skift-global-forum-east-returns",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Indian travel players have maximized their own customer base. They now recognize that the next phase of growth comes from quick commerce companies that have a customer base that is willing to spend for convenience."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-817a-a538-caf851c81fe3",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/news/international/us/nobody-likes-democrats-trumps-ai-video-on-truth-social-mocks-democratic-partys-voter-base-and-woke-policies/articleshow/124224305.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Donald Trump recently shared an AI-generated video. It mocked Democrats' efforts to attract new voters. The deepfake video showed Democrats discussing diminishing support. They suggested offering free healthcare to undocumented immigrants. This was a humorous…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8182-be0c-f1a175e1d61a",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/tata-motors-shares-in-focus-as-moodys-downgrades-outlook-after-jlr-cyber-incident/articleshow/124224310.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Tata Motors share price: Moody’s downgraded Tata Motors’ outlook to negative after a cyberattack at JLR halted production. The company's FY26 EBITDA is expected to take a massive hit due to this attack. While JLR has started a phased restart, prolonged disrup…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8136-a4c1-e5ab8b53e8f4",
+                "title": "Forbes",
+                "url": "https://www.forbes.com/sites/llewellynking/2025/09/29/many-believe-the-ai-bubble-will-burst-affecting-electric-utilities",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "The collaboration between electric utilities and data centers is stable, though it may still encounter some nasty shocks."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-8003-c7edbdf6c9e2",
+                "title": "Samsung.com",
+                "url": "https://news.samsung.com/global/samsung-art-store-expands-its-modern-and-contemporary-art-offering-with-new-tate-collection",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Samsung Electronics today announced the addition of 15 new artworks from Tate to Samsung Art Store. This expansion builds on the platform’s existing"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8122-83eb-fe6e90980880",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/markets/stocks/news/aptus-pharma-shares-to-debut-today-heres-what-gmp-indicates-ahead-of-listing/articleshow/124224165.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Aptus Pharma will debut on the BSE SME platform on September 30. Its initial public offering closed with high investor participation. The IPO was subscribed over 22 times across categories. Retail and high net worth individuals showed significant demand. The …"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8109-a06d-d7b197b25689",
+                "title": "The Times of India",
+                "url": "https://economictimes.indiatimes.com/tech/technology/electronic-arts-to-be-bought-in-largest-ever-private-equity-buyout-valued-at-55-billion/articleshow/124224085.cms",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Electronic Arts is being acquired for $55 billion by an investor group, including Saudi Arabia's sovereign wealth fund and Jared Kushner's firm, marking the largest private equity buyout in history. Stockholders will receive $210 per share. This move takes EA…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8149-adc2-c338d035b305",
+                "title": "Ndtvprofit.com",
+                "url": "https://www.ndtvprofit.com/world/google-to-pay-245-million-to-end-trump-jan-6-youtube-ban-lawsuit",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Alphabet Inc.’s Google agreed to pay $24.5 million to resolve Donald Trump’s claims that being blocked from posting on his YouTube channel after the Jan. 6, 2021, riot at the US Capitol was illegal censorship, according to a court filing."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8198-99c8-f56ad9e95e53",
+                "title": "Freerepublic.com",
+                "url": "https://freerepublic.com/focus/f-news/4343399/posts",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "A prominent computer science professor at one of the world’s most prestigious universities says his graduates are struggling to find work — a far cry from just four years ago when they had their pick of high-paying jobs and “had the run of the place.” Hany Fa…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-811c-bfc2-c6b90f384452",
+                "title": "Biztoc.com",
+                "url": "https://biztoc.com/x/849d19fd3dac1441",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "On Monday, Governor Gavin Newsom (D-Calif.) signed a landmark law requiring artificial intelligence giants such as OpenAI, Alphabet Inc.'s (NASDAQ: GOOG) (NASDAQ: GOOGL) Google, Meta Platforms, Inc. (NASDAQ: META) and Nvidia Corporation (NASDAQ: NVDA) to disc…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-818c-9a8d-d4ea2fa47bc7",
+                "title": "Rediff.com",
+                "url": "https://www.rediff.com/movies/report/how-trumps-latest-threat-will-hit-indian-movies/20250930.htm",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "'A 100% tariff could cut the Indian film industry's US revenues by 30% to 40%.'"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8192-a96c-c29c0c2ad9ad",
+                "title": "Forbes",
+                "url": "https://www.forbes.com/sites/catward/2025/09/29/3-potential-paths-forward-for-nonprofits-and-ai",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "AI is today’s electricity. Early adopters thrive, laggards fade. Will nonprofits catch up—or get left behind? Explore three futures for AI in the sector."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8121-9663-cd268c823359",
+                "title": "Freerepublic.com",
+                "url": "https://freerepublic.com/focus/f-chat/4343397/posts",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "WASHINGTON — In recent months, Sen. Elizabeth Warren, D-Mass., has hosted private virtual briefings with social media influencers, equipping them with information on key policy issues and Democratic messaging to disseminate on their large global platforms. On…"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8121-b6af-d58e0d0879b6",
+                "title": "Pypi.org",
+                "url": "https://pypi.org/project/random-name-generator-rendev",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "A Python library for generating random names using vowels and consonants."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8177-90b2-cfcf988185e4",
+                "title": "The Japan Times",
+                "url": "https://www.japantimes.co.jp/commentary/2025/09/30/japan/the-last-ldp-election",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "The five LDP presidential candidates — three conservatives and two liberals — are competing to offer the most uninspiring platform."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8130-a322-d3b7e9a8e555",
+                "title": "ABC News (AU)",
+                "url": "https://www.abc.net.au/news/2025-09-30/qld-police-investigating-death-mother-and-daughter-kenmore-hills/105833308",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "Police are investigating the sudden deaths of a mother and daughter whose bodies were found at a property in Kenmore Hills in Brisbane."
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8139-a7a1-e696336cba51",
+                "title": "Ndtvprofit.com",
+                "url": "https://www.ndtvprofit.com/markets/lufthansa-set-to-cut-4000-jobs-by-2030-as-artificial-intelligence-and-automation-take-over",
+                "ok": true,
+                "extra": {
+                    "status": "already_fetched",
+                    "excerpt": "In an attempt to boost profitability and operational efficiency, Lufthansa is set to cut 4,000 jobs by 2030, the company confirmed on Monday. The job cut is part of a major restructuring as the German airline company looks to fast-track the adoption of artifi…"
+                }
+            }
+        ]
+    },
+    "score": {
+        "attempted": 9,
+        "updated": 9,
+        "llmCalls": 9,
+        "results": [
+            {
+                "id": "27f42d2d-9aa3-8185-b2a2-c61e1277ddc3",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8176-ad9c-e29bced58f14",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81d9-90f9-ec59c814c357",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8140-a9a5-c574ca924d6e",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-819e-8e76-f8bcdbe5ae2b",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81b0-b048-c4898ba928d7",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8134-812d-e7b25b97fe6b",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8144-afa4-f421f3885649",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-8135-8ba4-f9e95a150ba8",
+                "ok": true,
+                "telemetry": {
+                    "model_used": "gemini-2.0-flash-lite-001",
+                    "retries": 0,
+                    "status_code": 200,
+                    "provider": "gemini"
+                }
+            }
+        ]
+    },
+    "compose": {
+        "attempted": 6,
+        "ok": 2,
+        "failed": 4,
+        "items": [
+            {
+                "id": "27f42d2d-9aa3-81f9-a7f5-c12c2a94b618",
+                "title": "Livemint",
+                "url": "https://www.livemint.com/money/personal-finance/what-does-current-outstanding-mean-in-credit-cards-an-explainer-credit-score-11759138431893.html",
+                "ok": false,
+                "error": "Coverage not India-relevant"
+            },
+            {
+                "id": "27f42d2d-9aa3-8118-9b18-d08f9a1f63e2",
+                "title": "Ndtvprofit.com",
+                "url": "https://www.ndtvprofit.com/business/stripe-joins-with-openai-to-allow-etsy-purchases-via-chatgpt",
+                "ok": false,
+                "error": "Coverage not India-relevant"
+            },
+            {
+                "id": "27f42d2d-9aa3-819d-8752-c4a0528fed32",
+                "title": "Ozbargain.com.au",
+                "url": "https://www.ozbargain.com.au/node/926346",
+                "ok": false,
+                "error": "Coverage not India-relevant"
+            },
+            {
+                "id": "27f42d2d-9aa3-814f-bb4c-ce36fe41da4b",
+                "title": "Skift",
+                "url": "https://skift.com/2025/09/29/how-quick-commerce-is-changing-travel-marketing-plus-skift-global-forum-east-returns",
+                "ok": true,
+                "extra": {
+                    "status": "composed",
+                    "preview": "What changed\n\t• 29 Sept 2025: Indian travel players have maximized their own customer base. They now recognize that the next phase of growth comes from quick commerce companies tha"
+                }
+            },
+            {
+                "id": "27f42d2d-9aa3-81af-b7ab-c5fa070e2636",
+                "title": "Finextra",
+                "url": "https://www.finextra.com/blogposting/29474/googles-agent-payments-protocol-ap2-a-new-chapter-in-agentic-commerce",
+                "ok": false,
+                "error": "Coverage not India-relevant"
+            },
+            {
+                "id": "27f42d2d-9aa3-81b0-b048-c4898ba928d7",
+                "title": "TRAI",
+                "url": "http://www.trai.gov.in/recommendations-reserve-price-auction-fm-radio-channels",
+                "ok": true,
+                "extra": {
+                    "status": "composed",
+                    "preview": "What changed\n\t• 23 Sept 2025: Recommendations on Reserve Price for Auction of FM Radio channels | Telecom Regulatory Authority of India Skip to main content Consumer Researcher / S"
+                }
+            }
+        ]
+    },
+    "composeDebug": {
+        "considered": [
+            {
+                "id": "27f42d2d-9aa3-819e-8e76-f8bcdbe5ae2b",
+                "title": "TRAI",
+                "type": "Rails",
+                "score": 3,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8147-bc40-fb36d6a78c3d",
+                "title": "Yahoo Entertainment",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-810b-9519-e425c6ceeaa2",
+                "title": "Globalsecurity.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-814b-b00c-d48040616675",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8132-abfb-c235f6434d53",
+                "title": "iTnews",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81bd-ba9f-e94ec6109e82",
+                "title": "CoinDesk",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81bb-9f37-cec2ad2974e5",
+                "title": "Livemint",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-a7f5-c12c2a94b618",
+                "title": "Livemint",
+                "type": "Coverage",
+                "score": 4.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81bf-b1c2-fd9a07c2e29b",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81e9-813f-defad9272517",
+                "title": "Al Jazeera English",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81e3-bf72-c03a1d2ddd54",
+                "title": "The Star Online",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8118-9b18-d08f9a1f63e2",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 4.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-819e-8495-da5d3a8e759f",
+                "title": "7NEWS.com.au",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-812a-875f-ed3e3e4bcf86",
+                "title": "Motley Fool Australia",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81ff-83d5-f79c861af01c",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8184-94da-c1952abb04df",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81a4-9a7c-f1252d6c6996",
+                "title": "Vulture",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81ba-892c-e3a5dc430931",
+                "title": "The Drum",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8197-b511-d62a15642fd8",
+                "title": "SiliconANGLE News",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-9f03-d3fa6c9681d7",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81c3-a36f-fe970370db24",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-818f-9d09-dfd65111753d",
+                "title": "Digitimes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81f7-a012-c371a59cff10",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8104-a7ab-deb4fbb4c1fb",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8194-8ac6-e7be9e7cad8f",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81e7-ac77-d0645e577238",
+                "title": "Yahoo Entertainment",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8124-ae58-e07ad1bc4a46",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-819d-8752-c4a0528fed32",
+                "title": "Ozbargain.com.au",
+                "type": "Coverage",
+                "score": 4.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-813d-8818-eed97cdac948",
+                "title": "Forbes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-814f-bb4c-ce36fe41da4b",
+                "title": "Skift",
+                "type": "Coverage",
+                "score": 4.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-817a-a538-caf851c81fe3",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8182-be0c-f1a175e1d61a",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8136-a4c1-e5ab8b53e8f4",
+                "title": "Forbes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-8003-c7edbdf6c9e2",
+                "title": "Samsung.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8122-83eb-fe6e90980880",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8109-a06d-d7b197b25689",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8149-adc2-c338d035b305",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8198-99c8-f56ad9e95e53",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-811c-bfc2-c6b90f384452",
+                "title": "Biztoc.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-818c-9a8d-d4ea2fa47bc7",
+                "title": "Rediff.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8192-a96c-c29c0c2ad9ad",
+                "title": "Forbes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8121-9663-cd268c823359",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8121-b6af-d58e0d0879b6",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8177-90b2-cfcf988185e4",
+                "title": "The Japan Times",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8130-a322-d3b7e9a8e555",
+                "title": "ABC News (AU)",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-8139-a7a1-e696336cba51",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81af-b7ab-c5fa070e2636",
+                "title": "Finextra",
+                "type": "Coverage",
+                "score": 4.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81d3-b867-d6285cb7e6ac",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-812c-9939-f6d7467bdbda",
+                "title": "Bleeding Cool News",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            },
+            {
+                "id": "27f42d2d-9aa3-81a7-954e-cb7ffd03a266",
+                "title": "ABC News (AU)",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d"
+            }
+        ],
+        "skipped": [
+            {
+                "id": "27f42d2d-9aa3-819e-8e76-f8bcdbe5ae2b",
+                "title": "TRAI",
+                "type": "Rails",
+                "score": 3,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8147-bc40-fb36d6a78c3d",
+                "title": "Yahoo Entertainment",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-810b-9519-e425c6ceeaa2",
+                "title": "Globalsecurity.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-814b-b00c-d48040616675",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8132-abfb-c235f6434d53",
+                "title": "iTnews",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81bd-ba9f-e94ec6109e82",
+                "title": "CoinDesk",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81bb-9f37-cec2ad2974e5",
+                "title": "Livemint",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81bf-b1c2-fd9a07c2e29b",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81e9-813f-defad9272517",
+                "title": "Al Jazeera English",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81e3-bf72-c03a1d2ddd54",
+                "title": "The Star Online",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-819e-8495-da5d3a8e759f",
+                "title": "7NEWS.com.au",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-812a-875f-ed3e3e4bcf86",
+                "title": "Motley Fool Australia",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81ff-83d5-f79c861af01c",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8184-94da-c1952abb04df",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81a4-9a7c-f1252d6c6996",
+                "title": "Vulture",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81ba-892c-e3a5dc430931",
+                "title": "The Drum",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8197-b511-d62a15642fd8",
+                "title": "SiliconANGLE News",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-9f03-d3fa6c9681d7",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81c3-a36f-fe970370db24",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-818f-9d09-dfd65111753d",
+                "title": "Digitimes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81f7-a012-c371a59cff10",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8104-a7ab-deb4fbb4c1fb",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8194-8ac6-e7be9e7cad8f",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81e7-ac77-d0645e577238",
+                "title": "Yahoo Entertainment",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8124-ae58-e07ad1bc4a46",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-813d-8818-eed97cdac948",
+                "title": "Forbes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-817a-a538-caf851c81fe3",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8182-be0c-f1a175e1d61a",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8136-a4c1-e5ab8b53e8f4",
+                "title": "Forbes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81f9-8003-c7edbdf6c9e2",
+                "title": "Samsung.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8122-83eb-fe6e90980880",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8109-a06d-d7b197b25689",
+                "title": "The Times of India",
+                "type": "Coverage",
+                "score": 3.9,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8149-adc2-c338d035b305",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8198-99c8-f56ad9e95e53",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-811c-bfc2-c6b90f384452",
+                "title": "Biztoc.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-818c-9a8d-d4ea2fa47bc7",
+                "title": "Rediff.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8192-a96c-c29c0c2ad9ad",
+                "title": "Forbes",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8121-9663-cd268c823359",
+                "title": "Freerepublic.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8121-b6af-d58e0d0879b6",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8177-90b2-cfcf988185e4",
+                "title": "The Japan Times",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8130-a322-d3b7e9a8e555",
+                "title": "ABC News (AU)",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-8139-a7a1-e696336cba51",
+                "title": "Ndtvprofit.com",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81d3-b867-d6285cb7e6ac",
+                "title": "Pypi.org",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-812c-9939-f6d7467bdbda",
+                "title": "Bleeding Cool News",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            },
+            {
+                "id": "27f42d2d-9aa3-81a7-954e-cb7ffd03a266",
+                "title": "ABC News (AU)",
+                "type": "Coverage",
+                "score": 3.2,
+                "window": "0–7d",
+                "reasons": [
+                    "score<4",
+                    "Coverage not India-relevant"
+                ]
+            }
+        ]
+    },
+    "validate": {
+        "attempted": 2,
+        "passed": 0,
+        "failed": 2,
+        "details": [
+            {
+                "id": "27f42d2d-9aa3-814f-bb4c-ce36fe41da4b",
+                "valid": false,
+                "reason": "Missing concrete clause"
+            },
+            {
+                "id": "27f42d2d-9aa3-81b0-b048-c4898ba928d7",
+                "valid": false,
+                "reason": "Missing concrete clause"
+            }
+        ]
+    },
+    "patch": {
+        "attempted": 2,
+        "ok": 2,
+        "failed": 0,
+        "items": [
+            {
+                "id": "27f42d2d-9aa3-814f-bb4c-ce36fe41da4b",
+                "ok": true
+            },
+            {
+                "id": "27f42d2d-9aa3-81b0-b048-c4898ba928d7",
+                "ok": true
+            }
+        ]
+    },
+    "notes": "End-to-end run (soft validation; always patch drafts)"
+}

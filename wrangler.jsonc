@@ -16,7 +16,12 @@
 	// Environment variables (safe, non-secret)
 	"vars": {
 		"NOTION_DATABASE_ID": "27c42d2d9aa380d38ec8c6c9c45605fc",
-		"FEED_URLS": "https://android-developers.googleblog.com/feeds/posts/default,https://developer.apple.com/news/rss/news.rss,https://developers.google.com/search/blog/feed.xml,https://www.medianama.com/feed/,https://inc42.com/feed/"
+		"FEED_URLS": "https://android-developers.googleblog.com/feeds/posts/default,https://developer.apple.com/news/rss/news.rss,https://developers.google.com/search/blog/feed.xml,https://www.medianama.com/feed/,https://inc42.com/feed/",
+		"FEAT_COMPOSE_LLM": "1",
+		"FEAT_LOCAL": "1",
+		"FEAT_GEMINI": "1",
+		"GDELT_ENABLED": "1",
+		"BING_NEWS_ENABLED": "1"
 	},
 	// Cron schedule (Cloudflare will invoke your Worker on this schedule in prod)
 	"triggers": {

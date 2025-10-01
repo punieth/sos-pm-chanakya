@@ -1,3 +1,10 @@
+import { ingestDynamicDiscovery } from './orchestrator';
+import { callLLM } from './providers/llm';
+import { mapHotLaunchProperties } from './publish/notion';
+import { canonicalUrlForHash, normalizeExcerptForHash, sha256Hex } from './utils/hash';
+import type { ScoreTelemetry, ImpactResult, EventClassName } from './types';
+import type { IngestStats } from './orchestrator';
+
 export default {
 	async scheduled(_e: ScheduledEvent, env: Env, ctx: ExecutionContext) {
 		ctx.waitUntil(orchestrate(env));
@@ -8,6 +15,38 @@ export default {
 
 		if (url.pathname === '/run') {
 			return json(await orchestrate(env));
+		}
+
+		if (url.pathname === '/dynamic-discovery') {
+			const preview = await ingestDynamicDiscovery(env, logEvent);
+			const survivors = preview.items.map((item) => ({
+				title: item.title,
+				url: item.url,
+				source: item.source,
+				provider: item.provider,
+				impact: item.impactScore,
+				eventClass: item.eventClass,
+				reason: describeImpactReason(item),
+				breakdown: item.impactBreakdown,
+			}));
+			const allItems = preview.allItems.map((item) => ({
+				title: item.title,
+				url: item.url,
+				source: item.source,
+				provider: item.provider,
+				impact: item.impactScore,
+				eventClass: item.eventClass,
+				reason: describeImpactReason(item),
+				breakdown: item.impactBreakdown,
+			}));
+			return json({
+				ok: true,
+				stats: preview.stats,
+				providerCounts: preview.providerCounts,
+				clusters: preview.clusters,
+				survivors,
+				allItems,
+			});
 		}
 
 		// Small debug: compose one by id
@@ -93,6 +132,12 @@ interface Env {
 	SEEN: KVNamespace;
 	NOTION_TOKEN: string;
 	NOTION_DATABASE_ID: string;
+	NEWSAPI_KEY?: string;
+	GDELT_ENABLED?: string;
+	BING_NEWS_ENABLED?: string;
+	FEAT_GEMINI?: string;
+	FEAT_LOCAL?: string;
+	FEAT_COMPOSE_LLM?: string;
 
 	// LLM
 	LLM_PROVIDER?: string; // default: "gemini"
@@ -122,8 +167,6 @@ type FeedStats = {
 	skippedOld: number;
 	samples: string[];
 };
-
-type ScoreTelemetry = { model_used: string; retries: number; status_code: number };
 
 type StageReport<T = any> = {
 	attempted: number;
@@ -164,6 +207,27 @@ type OrchestrateResult = {
 	ok: boolean;
 	batchId: string;
 	startedAt: string;
+	dynamicDiscovery?: {
+		stats: IngestStats;
+		notionCreated: number;
+		items: Array<{
+			url: string;
+			impact: number;
+			eventClass: string;
+			created: boolean;
+			reason: string;
+			impactBreakdown: ImpactResult['impactBreakdown'];
+		}>;
+		clusters: Array<{
+			id: string;
+			size: number;
+			theme: string;
+			eventClass: EventClassName;
+			domains: string[];
+			topTokens: string[];
+			sample?: { title?: string; url?: string; impact: number };
+		}>;
+	};
 	ingest: {
 		totals: { scanned: number; created: number; skippedSeen: number; skippedNoise: number; skippedOld: number };
 		types: Record<TypeName, number>;
@@ -257,6 +321,89 @@ const INDIA_KEYWORDS = [
 async function orchestrate(env: Env): Promise<OrchestrateResult> {
 	const startedAt = new Date().toISOString();
 	const batchId = startedAt.slice(0, 10);
+	const composeLLMEnabled = env.FEAT_COMPOSE_LLM !== '0';
+
+	let dynamicDiscovery: OrchestrateResult['dynamicDiscovery'] | undefined;
+	try {
+		const dynamic = await ingestDynamicDiscovery(env, logEvent);
+		let notionCreated = 0;
+		const itemReport: NonNullable<OrchestrateResult['dynamicDiscovery']>['items'] = [];
+		for (const item of dynamic.items) {
+			const excerpt = (item.description || '').slice(0, 1400);
+			const normalizedExcerpt = normalizeExcerptForHash(excerpt);
+			const canonical = canonicalUrlForHash(item.canonicalUrl || item.url);
+			const hashInput = `${normalizedExcerpt}|||${canonical}`;
+			const contentHash = await sha256Hex(hashInput);
+			const seenKey = `v4:${contentHash}`;
+			const baseReason = describeImpactReason(item);
+			if (await env.SEEN.get(seenKey)) {
+				itemReport.push({
+					url: item.url,
+					impact: item.impactScore,
+					eventClass: item.eventClass,
+					created: false,
+					reason: `${baseReason}; skipped: seen_hash`,
+					impactBreakdown: item.impactBreakdown,
+				});
+				logEvent('dynamic_skip_seen_hash', { url: item.url, hash: contentHash });
+				continue;
+			}
+			const extraProps = mapHotLaunchProperties(item);
+			try {
+				const pageId = await createNotionPage(env, {
+					sourceName: item.source || item.domain,
+					url: item.url,
+					type: 'Coverage',
+					format: 'Short-form',
+					publishedAt: item.publishedAt,
+					importedAt: startedAt,
+					batchId,
+					contentHash,
+					sourceExcerpt: excerpt,
+					contentFetched: Boolean(excerpt),
+					extraProperties: extraProps,
+				});
+				const created = Boolean(pageId);
+				if (created) {
+					notionCreated++;
+					await env.SEEN.put(seenKey, '1', { expirationTtl: 60 * 60 * 24 * 180 });
+				}
+				const reasonSuffix = created ? '' : '; skipped: notion_duplicate';
+				itemReport.push({
+					url: item.url,
+					impact: item.impactScore,
+					eventClass: item.eventClass,
+					created,
+					reason: `${baseReason}${reasonSuffix}`,
+					impactBreakdown: item.impactBreakdown,
+				});
+				logEvent('dynamic_publish', {
+					url: item.url,
+					impact: item.impactScore,
+					eventClass: item.eventClass,
+					created,
+				});
+			} catch (err) {
+				logEvent('dynamic_publish_error', { url: item.url, error: errorMessage(err) });
+				itemReport.push({
+					url: item.url,
+					impact: item.impactScore,
+					eventClass: item.eventClass,
+					created: false,
+					reason: `${baseReason}; notion_error: ${errorMessage(err)}`,
+					impactBreakdown: item.impactBreakdown,
+				});
+			}
+		}
+		dynamicDiscovery = {
+			stats: { ...dynamic.stats, providerCounts: dynamic.providerCounts },
+			notionCreated,
+			items: itemReport,
+			clusters: dynamic.clusters,
+		};
+	} catch (err) {
+		logEvent('dynamic_discovery_error', { error: errorMessage(err) });
+	}
 
 	// 1) Ingest newest items by type
 	const ingestRes = await ingestNewest(env);
@@ -329,16 +476,35 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 	let llmCalls = 0;
 
 	for (const p of pagesToScore) {
+		let telemetry: ScoreTelemetry | undefined;
 		try {
 			const shaped = shapeForScoring(p);
-			const { text: raw, telemetry } = await callLLM(env, shaped);
+			const llmResult = await callLLM(env, shaped, logEvent);
+			telemetry = llmResult.telemetry;
+			if (!llmResult.ok || !llmResult.text) {
+				scoreResults.push({ id: p.id, ok: false, error: llmResult.reason || 'LLM unavailable', telemetry });
+				logEvent('score_error', {
+					id: p.id,
+					url: p.url,
+					error: llmResult.reason || 'llm_unavailable',
+					retries: telemetry?.retries,
+					model: telemetry?.model_used,
+					provider: telemetry?.provider,
+				});
+				continue;
+			}
 			llmCalls += (telemetry?.retries ?? 0) + 1;
-			const parsed = safeParseLLM(raw);
+			const parsed = safeParseLLM(llmResult.text);
 			await notionUpdateScoring(env, p.id, mapLLMToNotion(parsed, p));
 			scoreResults.push({ id: p.id, ok: true, telemetry });
-			logEvent('score_ok', { id: p.id, url: p.url, retries: telemetry?.retries, model: telemetry?.model_used });
+			logEvent('score_ok', {
+				id: p.id,
+				url: p.url,
+				retries: telemetry?.retries,
+				model: telemetry?.model_used,
+				provider: telemetry?.provider,
+			});
 		} catch (e: any) {
-			const telemetry = (e as any)?.telemetry as ScoreTelemetry | undefined;
 			scoreResults.push({ id: p.id, ok: false, error: errorMessage(e), telemetry });
 			logEvent('score_error', {
 				id: p.id,
@@ -346,6 +512,7 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 				error: errorMessage(e),
 				retries: telemetry?.retries,
 				model: telemetry?.model_used,
+				provider: telemetry?.provider,
 			});
 		}
 	}
@@ -417,7 +584,7 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 				continue;
 			}
 			let draft = composeOneFromScored(p);
-			if (env.FF_DISABLE_FETCH !== '1') {
+			if (composeLLMEnabled && env.FF_DISABLE_FETCH !== '1') {
 				try {
 					const geminiDraft = await composeWithGemini(env, p);
 					draft = finalizeDraftFromGemini(env, draft, geminiDraft, p);
@@ -429,6 +596,8 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 						error: errorMessage(err),
 					});
 				}
+			} else if (!composeLLMEnabled) {
+				logEvent('compose_llm_disabled', { id: p.id, url: p.url });
 			}
 			drafts.push(draft);
 			composeReport.items.push({
@@ -481,6 +650,7 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 		ok: true,
 		batchId,
 		startedAt,
+		dynamicDiscovery,
 		ingest: ingestRes,
 		enrich: enrichReport,
 		score: { attempted: pagesToScore.length, updated: scoreResults.filter((r) => r.ok).length, llmCalls, results: scoreResults },
@@ -1473,6 +1643,7 @@ async function createNotionPage(
 		contentHash,
 		sourceExcerpt,
 		contentFetched,
+		extraProperties,
 	}: {
 		sourceName: string;
 		url: string;
@@ -1484,6 +1655,7 @@ async function createNotionPage(
 		contentHash: string;
 		sourceExcerpt?: string;
 		contentFetched?: boolean;
+		extraProperties?: Record<string, unknown>;
 	}
 ): Promise<string | null> {
 	const existing = await notionFindPageByHash(env, contentHash);
@@ -1506,6 +1678,11 @@ async function createNotionPage(
 	if (publishedAt) props['Published At'] = publishedAt;
 	if (sourceExcerpt !== undefined) props['Source Excerpt'] = sourceExcerpt || '(no excerpt)';
 	if (contentFetched) props['Content Fetched'] = true;
+	if (extraProperties) {
+		for (const [k, v] of Object.entries(extraProperties)) {
+			props[k] = v;
+		}
+	}
 	const payload = coerceProperties(schema, props);
 	if (env.FF_DRY_RUN === '1') {
 		logEvent('notion_create_skipped', { url, type, props: Object.keys(payload) });
@@ -1552,110 +1729,11 @@ async function notionFindPageByHash(env: Env, contentHash: string): Promise<stri
 	return data?.results?.[0]?.id || null;
 }
 
-/** =======================
- * LLM (Gemini-first; cheap)
- * ======================= */
-async function callLLM(env: Env, prompt: string): Promise<{ text: string; telemetry: ScoreTelemetry }> {
-	const provider = env.LLM_PROVIDER || 'gemini';
-	const dailyCap = parseInt(env.DAILY_LLM_LIMIT || '200', 10);
-	const todayKey = `llm:${new Date().toISOString().slice(0, 10)}`;
-	const used = parseInt((await env.SEEN.get(todayKey)) || '0', 10);
-	if (used >= dailyCap) throw new Error('Daily LLM limit reached');
-	await env.SEEN.put(todayKey, String(used + 1), { expirationTtl: 60 * 60 * 26 });
-
-	if (provider !== 'gemini') throw new Error('Only Gemini path implemented in this file (set LLM_PROVIDER=gemini).');
-
-	const key = env.GEMINI_API_KEY;
-	if (!key) throw new Error('Missing GEMINI_API_KEY');
-
-	const failoverEnabled = env.FF_GEMINI_FAILOVER !== '0';
-	const primaryModels = env.GEMINI_MODEL_FORCE
-		? [env.GEMINI_MODEL_FORCE]
-		: failoverEnabled
-		? ['gemini-2.0-flash-lite', 'gemini-1.5-flash']
-		: ['gemini-2.0-flash-lite'];
-	const maxOutput = clamp(parseInt(env.LLM_MAX_OUTPUT_TOKENS || '512', 10), 64, 2048);
-	const maxRetries = 2;
-	let attemptCount = 0;
-	let lastStatus = 0;
-	let lastModel = primaryModels[primaryModels.length - 1];
-	let lastError: unknown = null;
-
-	for (const model of primaryModels) {
-		lastModel = model;
-		for (let retry = 0; retry <= maxRetries; retry++) {
-			attemptCount++;
-			try {
-				const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
-				const body = {
-					contents: [{ role: 'user', parts: [{ text: prompt }] }],
-					generationConfig: { temperature: 0.2, maxOutputTokens: maxOutput },
-				};
-				const res = await fetch(url, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify(body),
-				});
-				lastStatus = res.status;
-				if (!res.ok) {
-					lastError = new Error(`Gemini error ${res.status}: ${await res.text()}`);
-					logEvent('llm_retry', { model, retry, status: res.status });
-					if (retry < maxRetries) {
-						await waitMs(jitter(300 * Math.pow(2, retry), 4000));
-						continue;
-					}
-					break;
-				}
-				const data: any = await res.json();
-				const text =
-					data?.candidates?.[0]?.content?.parts
-						?.map((p: any) => p?.text)
-						.filter(Boolean)
-						.join('\n') || data?.candidates?.[0]?.content?.parts?.[0]?.text;
-				if (!text) {
-					lastError = new Error('Gemini returned no text');
-					logEvent('llm_retry', { model, retry, status: res.status, reason: 'empty_text' });
-					if (retry < maxRetries) {
-						await waitMs(jitter(300 * Math.pow(2, retry), 4000));
-						continue;
-					}
-					break;
-				}
-				return {
-					text,
-					telemetry: { model_used: model, retries: Math.max(0, attemptCount - 1), status_code: res.status },
-				};
-			} catch (err) {
-				lastError = err;
-				logEvent('llm_retry_error', { model, retry, error: errorMessage(err) });
-				if (retry < maxRetries) {
-					await waitMs(jitter(300 * Math.pow(2, retry), 4000));
-					continue;
-				}
-				break;
-			}
-		}
-	}
-
-	const error =
-		lastError instanceof Error
-			? lastError
-			: new Error(typeof lastError === 'string' ? lastError : 'Gemini call failed');
-	(error as any).telemetry = {
-		model_used: lastModel,
-		retries: Math.max(0, attemptCount - 1),
-		status_code: lastStatus,
-	};
-	throw error;
-}
-
-// Parse LLM output that may come back wrapped in ```json fences or with extra text
 function safeParseLLM(raw: string): any {
 	const cleaned = raw.replace(/```json|```/g, '').trim();
 	try {
 		return JSON.parse(cleaned);
 	} catch {
-		// try to salvage the first {...} block
 		const m = cleaned.match(/\{[\s\S]*\}/);
 		if (!m) throw new Error('LLM did not return JSON');
 		return JSON.parse(m[0]);
@@ -1921,28 +1999,6 @@ function hash(s: string): string {
 	return (h >>> 0).toString(36);
 }
 
-async function sha256Hex(input: string): Promise<string> {
-	const enc = new TextEncoder();
-	const data = enc.encode(input);
-	const digest = await crypto.subtle.digest('SHA-256', data);
-	return Array.from(new Uint8Array(digest))
-		.map((b) => b.toString(16).padStart(2, '0'))
-		.join('');
-}
-
-function normalizeExcerptForHash(text: string): string {
-	return text.replace(/\s+/g, ' ').trim().toLowerCase();
-}
-
-function canonicalUrlForHash(rawUrl: string): string {
-	try {
-		const url = new URL(rawUrl);
-		url.hash = '';
-		return url.toString();
-	} catch {
-		return rawUrl.trim();
-	}
-}
 function clamp(n: number, lo: number, hi: number) {
 	return Math.max(lo, Math.min(hi, n));
 }
@@ -2012,6 +2068,19 @@ function fallbackQuickAction(p: NotionPageLite): string {
 	if (p.type === 'Marketplace') return 'Check seller/ops policy changes; update playbooks if applicable.';
 	// Coverage
 	return 'Skim and capture 1 actionable risk or opportunity for your product area.';
+}
+
+function describeImpactReason(item: ImpactResult): string {
+	const { recency, graphNovelty, surfaceReach, marketTie } = item.impactBreakdown;
+	const fragments: string[] = [];
+	if (recency >= 0.5) fragments.push(`fresh (${Math.round(recency * 100)}% recency)`);
+	if ((item.graphNovelty || 0) >= 1) fragments.push('new entity pair');
+	else if ((item.graphNovelty || 0) > 0) fragments.push('mild graph novelty');
+	if (surfaceReach >= 0.4) fragments.push('trusted reach');
+	if (marketTie >= 1) fragments.push('commerce/payments tie-in');
+	if (item.eventClass !== 'OTHER') fragments.push(`class: ${item.eventClass}`);
+	const detail = fragments.join('; ') || 'baseline composite impact';
+	return `Impact ${item.impactScore.toFixed(2)} — ${detail}`;
 }
 
 function logEvent(phase: string, payload: Record<string, unknown>): void {
