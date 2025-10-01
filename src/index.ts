@@ -86,6 +86,9 @@ const REGISTRY: FeedCfg[] = [
 	{ url: 'https://economictimes.indiatimes.com/tech/rssfeeds/13357270.cms', type: 'Coverage', source: 'ET Tech', cap: 1 },
 ];
 
+const SCHEMA_TTL_MS = 5 * 60 * 1000;
+let notionSchemaCache: { schema: NotionSchema; fetchedAt: number } | null = null;
+
 interface Env {
 	SEEN: KVNamespace;
 	NOTION_TOKEN: string;
@@ -99,7 +102,14 @@ interface Env {
 	DAILY_LLM_LIMIT?: string; // default 200
 
 	SCORE_BATCH_SIZE?: string; // default 15
+	FF_FORCE_ARCHIVE_LOW_SIGNAL?: string;
+	FF_DISABLE_FETCH?: string;
+	MAX_FETCH_BYTES?: string;
+	MAX_BODY_LEN?: string;
+	FF_DRY_RUN?: string;
 }
+
+declare const process: { env?: Record<string, string | undefined> } | undefined;
 
 type FeedItem = { title: string; link: string; pubDate?: string };
 
@@ -118,6 +128,25 @@ type StageReport<T = any> = {
 	failed: number;
 	items: Array<{ id?: string; title?: string; url?: string; ok: boolean; error?: string; extra?: T }>;
 };
+
+type NotionPropertyType =
+	| 'title'
+	| 'rich_text'
+	| 'select'
+	| 'multi_select'
+	| 'number'
+	| 'date'
+	| 'checkbox'
+	| 'url'
+	| 'status';
+
+type NotionSchema = Record<
+	string,
+	{
+		type: NotionPropertyType;
+		options?: string[];
+	}
+>;
 
 type ComposeConsider = {
 	id: string;
@@ -169,7 +198,11 @@ async function clearAllKV(ns: KVNamespace): Promise<number> {
 	let count = 0;
 	let cursor: string | undefined = undefined;
 	do {
-		const list = await ns.list({ cursor, limit: 1000 });
+		const list = (await ns.list({ cursor, limit: 1000 })) as {
+			keys: Array<{ name: string }>;
+			list_complete: boolean;
+			cursor?: string;
+		};
 		if (list.keys.length === 0) break;
 		await Promise.all(list.keys.map((k) => ns.delete(k.name)));
 		count += list.keys.length;
@@ -222,7 +255,12 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 
 	// 2) Enrich: fetch source content → Source Excerpt + Content Fetched
 	const createdIds = await notionFetchTodayIds(env, batchId);
-	const enrichReport: StageReport<{ excerpt?: string }> = { attempted: createdIds.length, ok: 0, failed: 0, items: [] };
+	const enrichReport: StageReport<{ excerpt?: string; status?: string; httpStatus?: number }> = {
+		attempted: createdIds.length,
+		ok: 0,
+		failed: 0,
+		items: [],
+	};
 
 	for (const id of createdIds) {
 		try {
@@ -232,16 +270,37 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 				enrichReport.failed++;
 				continue;
 			}
+			const health = await checkUrlHealth(env, lite.url);
+			if (!health.alive) {
+				logEvent('url_dead', { id, url: lite.url, status: health.status, reason: health.reason });
+				const noteBits = ['Dead link'];
+				if (health.status) noteBits.push(`(HTTP ${health.status})`);
+				else if (health.reason) noteBits.push(`(${health.reason})`);
+				await notionPatch(env, id, {
+					Status: 'Archive',
+					'Reviewers Notes': noteBits.join(' '),
+				});
+				enrichReport.items.push({
+					id,
+					title: lite.title,
+					url: lite.url,
+					ok: true,
+					extra: { status: 'dead_link', httpStatus: health.status },
+				});
+				continue;
+			}
 			const { excerpt } = await fetchExcerpt(lite.url);
 			await notionPatch(env, id, {
-				'Source Excerpt': textProp(excerpt || '(no excerpt)'),
-				'Content Fetched': { checkbox: true },
+				'Source Excerpt': excerpt || '(no excerpt)',
+				'Content Fetched': true,
 			});
 			enrichReport.items.push({ id, title: lite.title, url: lite.url, ok: true, extra: { excerpt } });
 			enrichReport.ok++;
+			logEvent('enrich_ok', { id, url: lite.url, excerptBytes: (excerpt || '').length });
 		} catch (e: any) {
-			enrichReport.items.push({ id, ok: false, error: String(e?.message || e) });
+			enrichReport.items.push({ id, ok: false, error: errorMessage(e) });
 			enrichReport.failed++;
+			logEvent('enrich_error', { id, error: errorMessage(e) });
 		}
 	}
 
@@ -259,8 +318,10 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 			const parsed = safeParseLLM(raw);
 			await notionUpdateScoring(env, p.id, mapLLMToNotion(parsed, p));
 			scoreResults.push({ id: p.id, ok: true });
+			logEvent('score_ok', { id: p.id, url: p.url });
 		} catch (e: any) {
-			scoreResults.push({ id: p.id, ok: false, error: String(e?.message || e) });
+			scoreResults.push({ id: p.id, ok: false, error: errorMessage(e) });
+			logEvent('score_error', { id: p.id, url: p.url, error: errorMessage(e) });
 		}
 	}
 
@@ -327,9 +388,23 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 			if (p.type === 'Coverage' && !isIndiaRelevant(p.excerpt || '')) {
 				composeReport.items.push({ id: p.id, title: p.title, url: p.url, ok: false, error: 'Coverage not India-relevant' });
 				composeReport.failed++;
+				logEvent('compose_skip', { id: p.id, reason: 'not_india_relevant', url: p.url });
 				continue;
 			}
-			const draft = composeOneFromScored(p);
+			let draft = composeOneFromScored(p);
+			if (env.FF_DISABLE_FETCH !== '1') {
+				try {
+					const geminiDraft = await composeWithGemini(env, p);
+					draft = finalizeDraftFromGemini(env, draft, geminiDraft, p);
+					logEvent('compose_gemini_ok', { id: p.id, url: p.url });
+				} catch (err: unknown) {
+					logEvent('compose_gemini_error', {
+						id: p.id,
+						url: p.url,
+						error: errorMessage(err),
+					});
+				}
+			}
 			drafts.push(draft);
 			composeReport.items.push({
 				id: p.id,
@@ -339,9 +414,10 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 				extra: { status: 'composed', preview: (draft.body || '').slice(0, 180) },
 			});
 			composeReport.ok++;
-		} catch (e: any) {
-			composeReport.items.push({ id: p.id, title: p.title, url: p.url, ok: false, error: String(e?.message || e) });
+		} catch (e: unknown) {
+			composeReport.items.push({ id: p.id, title: p.title, url: p.url, ok: false, error: errorMessage(e) });
 			composeReport.failed++;
+			logEvent('compose_failure', { id: p.id, url: p.url, error: errorMessage(e) });
 		}
 	}
 
@@ -353,11 +429,20 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 	// Mark failures on the row so you see why, and set status to Needs Fact
 	for (const f of failed) {
 		try {
+			const note = `Validator: ${f.reason || 'unknown'}`;
+			if (f.post) f.post.reviewerNote = note;
 			await notionPatch(env, f.id, {
-				'Draft Status': { select: { name: 'Needs Fact' } },
-				'Reviewers Notes': textProp(`Validator: ${f.reason || 'unknown'}`),
+				'Draft Status': 'Needs Fact',
+				'Reviewers Notes': note,
 			});
+			logEvent('validate_fail', { id: f.id, reason: f.reason });
 		} catch {}
+	}
+
+	for (const v of validationResults) {
+		if (v.valid && v.reviewerNote) {
+			logEvent('validate_soft', { id: v.id, note: v.reviewerNote });
+		}
 	}
 
 	// 6) Patch drafts back to Notion — BOTH passed and failed (failed as Needs Fact)
@@ -369,9 +454,11 @@ async function orchestrate(env: Env): Promise<OrchestrateResult> {
 			await patchDraftToNotion(env, v.id, post);
 			patchReport.items.push({ id: v.id, ok: true });
 			patchReport.ok++;
-		} catch (e: any) {
-			patchReport.items.push({ id: v.id, ok: false, error: String(e?.message || e) });
+			logEvent('patch_ok', { id: v.id, status: post.status, note: post.reviewerNote });
+		} catch (e: unknown) {
+			patchReport.items.push({ id: v.id, ok: false, error: errorMessage(e) });
 			patchReport.failed++;
+			logEvent('patch_error', { id: v.id, error: errorMessage(e) });
 		}
 	}
 
@@ -465,14 +552,15 @@ async function ingestNewest(env: Env) {
 					continue;
 				}
 
-				const key = `v3:${type}:${hash(it.link)}`;
+				const contentHash = hash(it.link);
+				const key = `v3:${type}:${contentHash}`;
 				if (await env.SEEN.get(key)) {
 					skippedSeen++;
 					continue;
 				}
 
 				try {
-					await createNotionPage(env, {
+					const createdPageId = await createNotionPage(env, {
 						sourceName: cfg.source || guessSourceName(feed),
 						url: it.link,
 						type,
@@ -480,13 +568,19 @@ async function ingestNewest(env: Env) {
 						publishedAt,
 						importedAt: today.toISOString(),
 						batchId,
+						contentHash,
 					});
 					await env.SEEN.put(key, '1', { expirationTtl: 60 * 60 * 24 * 180 });
-					created++;
-					perTypeCreated[type]++;
-					T_created++;
+					if (createdPageId) {
+						logEvent('ingest_create', { id: createdPageId, url: it.link, type });
+						created++;
+						perTypeCreated[type]++;
+						T_created++;
+					} else {
+						skippedSeen++;
+					}
 				} catch (e) {
-					const msg = String(e?.message || e);
+					const msg = errorMessage(e);
 					samples.push(`ERR: ${msg.slice(0, 180)}`);
 				}
 			}
@@ -511,17 +605,21 @@ async function ingestNewest(env: Env) {
  * Enrich helpers
  * ======================= */
 async function notionFetchTodayIds(env: Env, batchId: string): Promise<string[]> {
-	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
-		method: 'POST',
-		headers: notionHeaders(env),
-		body: JSON.stringify({
-			filter: { property: 'Batch ID', rich_text: { contains: batchId } },
-			sorts: [{ property: 'Published At', direction: 'descending' }],
-			page_size: 50,
-		}),
-	});
-	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
-	const data = await res.json();
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`,
+		{
+			method: 'POST',
+			headers: notionHeaders(env),
+			body: JSON.stringify({
+				filter: { property: 'Batch ID', rich_text: { contains: batchId } },
+				sorts: [{ property: 'Published At', direction: 'descending' }],
+				page_size: 50,
+			}),
+		},
+		{ label: 'notion_fetch_today_ids' }
+	);
+	await assertNotionOk(res, 'notion_fetch_today_ids');
+	const data: any = await res.json();
 	return (data.results || []).map((r: any) => r.id);
 }
 
@@ -530,6 +628,51 @@ async function fetchExcerpt(url: string): Promise<{ excerpt: string }> {
 	if (!txt) return { excerpt: '' };
 	const cleaned = stripTags(txt).replace(/\s+/g, ' ').trim();
 	return { excerpt: cleaned.slice(0, 1400) };
+}
+
+async function checkUrlHealth(
+	env: Env,
+	url?: string
+): Promise<{ alive: boolean; status?: number; reason?: string; skipped?: boolean; contentType?: string }> {
+	if (!url) return { alive: false, reason: 'missing_url' };
+	if (env.FF_DISABLE_FETCH === '1') return { alive: true, skipped: true };
+	const headers = new Headers({ 'User-Agent': 'Mozilla/5.0 (compatible; PMDigestWorker/1.0)' });
+	let headRes: Response | null = null;
+	try {
+		headRes = await retryingFetch(url, { method: 'HEAD', redirect: 'follow', headers }, { label: 'url_health_head', retries: 1 });
+	} catch {}
+	const headOk = headRes?.ok === true;
+	const headStatus = headRes?.status;
+	if (headOk && headStatus && headStatus < 400) {
+		const ct = headRes?.headers.get('content-type') || undefined;
+		if (ct && !/html|xml|rss/i.test(ct)) {
+			return { alive: false, status: headStatus, reason: 'content_type', contentType: ct };
+		}
+		return { alive: true, status: headStatus, contentType: headRes?.headers.get('content-type') || undefined };
+	}
+	let getRes: Response | null = null;
+	try {
+		const rangedHeaders = new Headers(headers);
+		rangedHeaders.set('Range', 'bytes=0-8191');
+		getRes = await retryingFetch(
+			url,
+			{ method: 'GET', redirect: 'follow', headers: rangedHeaders },
+			{ label: 'url_health_get', retries: 1 }
+		);
+	} catch (err) {
+		const reason = errorMessage(err) || 'fetch_error';
+		return { alive: false, reason };
+	}
+	if (!getRes) return { alive: false, reason: 'fetch_error' };
+	const status = getRes.status;
+	if (status >= 400) {
+		return { alive: false, status, reason: 'http_status' };
+	}
+	const ct = getRes.headers.get('content-type') || undefined;
+	if (ct && !/html|xml|rss/i.test(ct)) {
+		return { alive: false, status, reason: 'content_type', contentType: ct };
+	}
+	return { alive: true, status, contentType: ct };
 }
 
 /** =======================
@@ -552,10 +695,12 @@ type NotionPageLite = {
 };
 
 async function notionFetchUnscoredToday(env: Env, batchId: string, limit: number): Promise<NotionPageLite[]> {
-	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
-		method: 'POST',
-		headers: notionHeaders(env),
-		body: JSON.stringify({
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`,
+		{
+			method: 'POST',
+			headers: notionHeaders(env),
+			body: JSON.stringify({
 			filter: {
 				and: [
 					{ property: 'Batch ID', rich_text: { contains: batchId } },
@@ -567,10 +712,12 @@ async function notionFetchUnscoredToday(env: Env, batchId: string, limit: number
 				{ property: 'Published At', direction: 'descending' },
 			],
 			page_size: Math.min(limit, 25),
-		}),
-	});
-	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
-	const data = await res.json();
+			}),
+		},
+		{ label: 'notion_fetch_unscored' }
+	);
+	await assertNotionOk(res, 'notion_fetch_unscored');
+	const data: any = await res.json();
 	return mapResultsToLite(data.results);
 }
 
@@ -617,13 +764,17 @@ async function notionFetchForCompose(env: Env, batchId: string, limit: number): 
 		page_size: Math.min(limit, 10),
 	};
 
-	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
-		method: 'POST',
-		headers: notionHeaders(env),
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
-	const data = await res.json();
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`,
+		{
+			method: 'POST',
+			headers: notionHeaders(env),
+			body: JSON.stringify(body),
+		},
+		{ label: 'notion_fetch_compose' }
+	);
+	await assertNotionOk(res, 'notion_fetch_compose');
+	const data: any = await res.json();
 	return mapResultsToLite(data.results);
 }
 
@@ -647,20 +798,31 @@ async function notionFetchComposeConsider(env: Env, batchId: string): Promise<No
 		page_size: 50,
 	};
 
-	const res = await fetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`, {
-		method: 'POST',
-		headers: notionHeaders(env),
-		body: JSON.stringify(body),
-	});
-	if (!res.ok) throw new Error(`Notion query failed: ${res.status} ${await res.text()}`);
-	const data = await res.json();
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`,
+		{
+			method: 'POST',
+			headers: notionHeaders(env),
+			body: JSON.stringify(body),
+		},
+		{ label: 'notion_fetch_consider' }
+	);
+	await assertNotionOk(res, 'notion_fetch_consider');
+	const data: any = await res.json();
 	return mapResultsToLite(data.results);
 }
 
 async function notionGetPageLite(env: Env, id: string): Promise<NotionPageLite | null> {
-	const res = await fetch(`https://api.notion.com/v1/pages/${id}`, { headers: notionHeaders(env) });
-	if (!res.ok) return null;
-	const r = await res.json();
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/pages/${id}`,
+		{ headers: notionHeaders(env) },
+		{ label: 'notion_get_page' }
+	);
+	if (!res.ok) {
+		if (res.status === 404) return null;
+		await assertNotionOk(res, 'notion_get_page');
+	}
+	const r: any = await res.json();
 	return mapOneToLite(r);
 }
 
@@ -737,22 +899,16 @@ function shapeForScoring(p: NotionPageLite): string {
 }
 
 async function notionUpdateScoring(env: Env, pageId: string, s: NotionScorePayload): Promise<void> {
-	const props: any = {
-		'Signal Score': { number: clamp(+s.signalScore, 0, 10) },
-		'Role Tag': { select: { name: s.roleTag } },
-		'Quick Action': textProp(s.quickAction || ''),
-		Why: textProp(s.why || ''),
-		'Decision Window': { select: { name: s.decisionWindow } },
-		'Affected Steps': { multi_select: s.affectedSteps.map((n) => ({ name: n })) },
-		'KPI Impact': { multi_select: s.kpiImpact.map((n) => ({ name: n })) },
-		Status: { select: { name: s.status } },
-	};
-	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
+	await notionPatch(env, pageId, {
+		'Signal Score': clamp(+s.signalScore, 0, 10),
+		'Role Tag': s.roleTag,
+		'Quick Action': s.quickAction || '',
+		Why: s.why || '',
+		'Decision Window': s.decisionWindow,
+		'Affected Steps': s.affectedSteps,
+		'KPI Impact': s.kpiImpact,
+		Status: s.status,
 	});
-	if (!res.ok) throw new Error(`Notion update failed: ${res.status} ${await res.text()}`);
 }
 
 type NotionScorePayload = {
@@ -810,11 +966,14 @@ type DraftPost = {
 	citations?: string;
 	audienceTier?: 'IC' | 'Lead' | 'VP';
 	postAngle?: Array<'Playbook' | 'Hot take' | 'Explainer'>;
+	reviewerNote?: string;
+	contentHash?: string;
 	// meta from source so validator can be smarter (esp. Rails)
 	_meta?: {
 		type?: TypeName;
 		excerpt?: string;
 		decisionWindow?: '<7d' | '7–30d' | '>30d';
+		sourceUrl?: string;
 	};
 };
 
@@ -837,15 +996,22 @@ function composeOneFromScored(p: NotionPageLite): DraftPost {
 	
 	If you own Checkout/Payments — expect impact on Conversion/Approval.
 	Source: ${p.url || ''}`;
-
+	const citations = extractCitations(p);
 	return {
 		id: p.id,
 		title,
 		body,
 		status: 'Proposed',
-		citations: extractCitations(p),
+		citations,
 		audienceTier: p.audienceTier || 'IC',
 		postAngle: ['Explainer'],
+		contentHash: hash(`${title}|${body}|${citations}`),
+		_meta: {
+			type: p.type,
+			excerpt: p.excerpt,
+			decisionWindow: p.decisionWindow,
+			sourceUrl: p.url,
+		},
 	};
 }
 // map Type→action skeletons, always imperative + specific
@@ -901,68 +1067,77 @@ function extractCitations(p: NotionPageLite): string {
 	return bits.join('\n');
 }
 
-type ValidationResult = { id: string; valid: boolean; reason?: string; post?: DraftPost };
+type ValidationResult = { id: string; valid: boolean; reason?: string; post?: DraftPost; reviewerNote?: string };
 
 function validatePosts(posts: DraftPost[]): ValidationResult[] {
 	const out: ValidationResult[] = [];
 	for (const post of posts) {
-		// Action line (allow spaces before bullet)
-		const qaMatch = post.body.match(/Action for this week\s*\n\s*•\s*(.+)/i);
+		const clone: DraftPost = {
+			...post,
+			postAngle: post.postAngle ? [...post.postAngle] : undefined,
+			_meta: post._meta ? { ...post._meta } : undefined,
+		};
+		let valid = true;
+		let reason: string | undefined;
+
+		const title = (post.title || '').trim();
+		if (!title) {
+			valid = false;
+			reason = 'Missing Draft Title';
+		}
+
+		const body = post.body || '';
+		if (valid && !/what changed/i.test(body)) {
+			valid = false;
+			reason = 'Missing "What changed" section';
+		}
+
+		const qaMatch = body.match(/Action for this week\s*\n\s*•\s*(.+)/i);
 		const qaLine = qaMatch ? qaMatch[1].trim() : '';
-		if (!qaLine) {
-			out.push({ id: post.id, valid: false, reason: 'Missing Action line', post });
-			continue;
+		if (valid && !qaLine) {
+			valid = false;
+			reason = 'Missing Action line';
 		}
-		if (qaLine.length > 100) {
-			out.push({ id: post.id, valid: false, reason: 'Action > 100 chars', post });
-			continue;
+		if (valid && qaLine.length > 100) {
+			valid = false;
+			reason = 'Action line > 100 chars';
 		}
-		if (/learn more|follow along|stay tuned/i.test(qaLine)) {
-			out.push({ id: post.id, valid: false, reason: 'Vague action', post });
-			continue;
-		}
-
-		// What changed needs date/clause or explicit “confirm exact clause/date”
-		const changedMatch = post.body.match(/What changed\s*\n\s*•\s*(.+)/i);
-		const changedLine = changedMatch ? changedMatch[1] : '';
-		const hasDateish = /\b(\d{4}-\d{2}-\d{2}|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|effective\s+from|by\s+\d{1,2})/i.test(
-			changedLine
-		);
-		if (!hasDateish && !/confirm exact clause\/date/i.test(changedLine)) {
-			out.push({ id: post.id, valid: false, reason: 'No concrete date/clause in What changed', post });
-			continue;
+		if (valid && /learn more|follow along|stay tuned/i.test(qaLine)) {
+			valid = false;
+			reason = 'Vague action';
 		}
 
-		out.push({ id: post.id, valid: true, post });
+		const citations = post.citations || '';
+		const sourceUrl = post._meta?.sourceUrl;
+		if (valid && sourceUrl && !citations.includes(sourceUrl)) {
+			valid = false;
+			reason = 'Citations missing source URL';
+		}
+
+		const clauseSignal = extractTimingClause(citations);
+		if (!clauseSignal) {
+			clone.reviewerNote = 'Validator: No concrete clause';
+		}
+
+		out.push({ id: post.id, valid, reason, post: clone, reviewerNote: clone.reviewerNote });
 	}
 	return out;
 }
 
 async function patchDraftToNotion(env: Env, pageId: string, post: DraftPost): Promise<void> {
-	const props: any = {
-		'Draft Title': textProp(post.title || ''),
-		'Draft Body': textProp(post.body || ''),
-		'Draft Status': { select: { name: post.status || 'Proposed' } },
+	const payload: Record<string, unknown> = {
+		'Draft Title': post.title || '',
+		'Draft Body': post.body || '',
+		'Draft Status': post.status || 'Proposed',
+		'Citations': post.citations || '',
+		'Audience Tier': post.audienceTier,
+		'Post Angle': post.postAngle || [],
+		'Content Hash': post.contentHash,
 	};
-	if (post.citations) props['Citations'] = textProp(post.citations);
-	if (post.audienceTier) props['Audience Tier'] = { select: { name: post.audienceTier } };
-	if (post.postAngle && post.postAngle.length) props['Post Angle'] = { multi_select: post.postAngle.map((n) => ({ name: n })) };
-	else props['Post Angle'] = { multi_select: [] };
-
-	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
-	});
-	if (!res.ok) {
-		const body = await res.text();
-		console.error('Notion patch failed for Post Angle', {
-			status: res.status,
-			body,
-			hints: props['Post Angle'],
-		});
-		throw new Error(`Notion patch failed: ${res.status} ${body}`);
+	if (typeof post.reviewerNote === 'string') {
+		payload['Reviewers Notes'] = post.reviewerNote;
 	}
+	await notionPatch(env, pageId, payload);
 }
 
 /** =======================
@@ -978,6 +1153,7 @@ async function createNotionPage(
 		publishedAt,
 		importedAt,
 		batchId,
+		contentHash,
 	}: {
 		sourceName: string;
 		url: string;
@@ -986,26 +1162,71 @@ async function createNotionPage(
 		publishedAt?: string;
 		importedAt: string;
 		batchId: string;
+		contentHash: string;
 	}
-) {
-	const props: Record<string, any> = {
-		'Source Name': { title: [{ text: { content: sourceName } }] },
-		URL: { url },
-		Type: { select: { name: type } },
-		Format: { select: { name: format } },
-		'Imported By': textProp('Cloudflare Worker'),
-		'Imported At': { date: { start: importedAt } },
-		'Batch ID': textProp(batchId),
-		'Last Checked': { date: { start: new Date().toISOString() } },
+): Promise<string | null> {
+	const existing = await notionFindPageByHash(env, contentHash);
+	if (existing) {
+		logEvent('ingest_skip_duplicate', { id: existing, hash: contentHash, url });
+		return null;
+	}
+	const schema = await loadNotionSchema(env);
+	const props: Record<string, unknown> = {
+		'Source Name': sourceName,
+		URL: url,
+		Type: type,
+		Format: format,
+		'Imported By': 'Cloudflare Worker',
+		'Imported At': importedAt,
+		'Batch ID': batchId,
+		'Last Checked': new Date().toISOString(),
+		'Content Hash': contentHash,
 	};
-	if (publishedAt) props['Published At'] = { date: { start: publishedAt } };
+	if (publishedAt) props['Published At'] = publishedAt;
+	const payload = coerceProperties(schema, props);
+	if (env.FF_DRY_RUN === '1') {
+		logEvent('notion_create_skipped', { url, type, props: Object.keys(payload) });
+		return 'dry-run';
+	}
+	const res = await retryingFetch(
+		'https://api.notion.com/v1/pages',
+		{
+			method: 'POST',
+			headers: notionHeaders(env),
+			body: JSON.stringify({ parent: { database_id: env.NOTION_DATABASE_ID }, properties: payload }),
+		},
+		{ label: 'notion_create' }
+	);
+	await assertNotionOk(res, 'notion_create');
+	const data: any = await res.json();
+	return data?.id || null;
+}
 
-	const res = await fetch('https://api.notion.com/v1/pages', {
-		method: 'POST',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ parent: { database_id: env.NOTION_DATABASE_ID }, properties: props }),
-	});
-	if (!res.ok) throw new Error(`Notion create failed: ${res.status} ${await res.text()}`);
+async function notionFindPageByHash(env: Env, contentHash: string): Promise<string | null> {
+	const schema = await loadNotionSchema(env);
+	if (!schema['Content Hash']) {
+		logEvent('notion_hash_skip', { reason: 'missing_property' });
+		return null;
+	}
+	const body = {
+		filter: {
+			property: 'Content Hash',
+			rich_text: { equals: contentHash },
+		},
+		page_size: 1,
+	};
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}/query`,
+		{
+			method: 'POST',
+			headers: notionHeaders(env),
+			body: JSON.stringify(body),
+		},
+		{ label: 'notion_find_hash' }
+	);
+	await assertNotionOk(res, 'notion_find_hash');
+	const data: any = await res.json();
+	return data?.results?.[0]?.id || null;
 }
 
 /** =======================
@@ -1030,7 +1251,11 @@ async function callLLM(env: Env, prompt: string): Promise<string> {
 			contents: [{ role: 'user', parts: [{ text: prompt }] }],
 			generationConfig: { temperature: 0.2, maxOutputTokens: clamp(parseInt(env.LLM_MAX_OUTPUT_TOKENS || '512', 10), 64, 2048) },
 		};
-		const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+		const res = await retryingFetch(
+			url,
+			{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) },
+			{ label: 'llm_score', retries: 2 }
+		);
 		if (!res.ok) throw new Error(`Gemini error ${res.status}: ${await res.text()}`);
 		const data: any = await res.json();
 		const text =
@@ -1063,12 +1288,16 @@ function safeParseLLM(raw: string): any {
  * ======================= */
 async function safeGet(url: string): Promise<string | null> {
 	try {
-		const res = await fetch(url, {
+		const res = await retryingFetch(
+			url,
+			{
 			headers: {
 				Accept: 'text/html,application/rss+xml,application/atom+xml,text/xml;q=0.9',
 				'User-Agent': 'Mozilla/5.0 (compatible; PMDigestWorker/1.0)',
 			},
-		});
+			},
+			{ label: 'safe_get', retries: 2 }
+		);
 		if (!res.ok) return null;
 		return await res.text();
 	} catch {
@@ -1173,13 +1402,24 @@ function notionHeaders(env: Env): Record<string, string> {
 	};
 }
 
-async function notionPatch(env: Env, pageId: string, props: Record<string, any>) {
-	const res = await fetch(`https://api.notion.com/v1/pages/${pageId}`, {
-		method: 'PATCH',
-		headers: notionHeaders(env),
-		body: JSON.stringify({ properties: props }),
-	});
-	if (!res.ok) throw new Error(`Notion patch failed: ${res.status} ${await res.text()}`);
+async function notionPatch(env: Env, pageId: string, props: Record<string, unknown>) {
+	const schema = await loadNotionSchema(env);
+	const payload = coerceProperties(schema, props);
+	if (Object.keys(payload).length === 0) return;
+	if (env.FF_DRY_RUN === '1') {
+		logEvent('notion_patch_skipped', { pageId, props: Object.keys(payload) });
+		return;
+	}
+	const res = await retryingFetch(
+		`https://api.notion.com/v1/pages/${pageId}`,
+		{
+			method: 'PATCH',
+			headers: notionHeaders(env),
+			body: JSON.stringify({ properties: payload }),
+		},
+		{ label: 'notion_patch' }
+	);
+	await assertNotionOk(res, 'notion_patch');
 }
 
 function extractTitle(titleProp: any): string | undefined {
@@ -1199,10 +1439,6 @@ function extractText(rt: any): string {
 		.filter(Boolean)
 		.join(' ')
 		.trim();
-}
-
-function textProp(s: string) {
-	return { rich_text: [{ type: 'text', text: { content: s.slice(0, 4000) } }] };
 }
 
 /** =======================
@@ -1298,4 +1534,376 @@ function fallbackQuickAction(p: NotionPageLite): string {
 	if (p.type === 'Marketplace') return 'Check seller/ops policy changes; update playbooks if applicable.';
 	// Coverage
 	return 'Skim and capture 1 actionable risk or opportunity for your product area.';
+}
+
+function logEvent(phase: string, payload: Record<string, unknown>): void {
+	const base = typeof payload === 'object' && payload ? payload : {};
+	const entry = {
+		phase,
+		ts: new Date().toISOString(),
+		...base,
+	};
+	try {
+		console.log(JSON.stringify(entry));
+	} catch {
+		console.log(`{"phase":"${phase}","error":"log stringify failed"}`);
+	}
+}
+
+function errorMessage(err: unknown): string {
+	if (err instanceof Error && typeof err.message === 'string') return err.message;
+	if (typeof err === 'string') return err;
+	try {
+		return JSON.stringify(err);
+	} catch {
+		return String(err);
+	}
+}
+
+async function assertNotionOk(res: Response, label: string): Promise<void> {
+	if (res.ok) return;
+	const body = await res.text();
+	const requestId = res.headers.get('x-request-id') || undefined;
+	logEvent('notion_error', {
+		label,
+		status: res.status,
+		requestId,
+		bodySnippet: body.slice(0, 500),
+	});
+	throw new Error(`Notion ${label} failed: ${res.status} ${body}`);
+}
+
+async function loadNotionSchema(env: Env): Promise<NotionSchema> {
+	const now = Date.now();
+	if (notionSchemaCache && now - notionSchemaCache.fetchedAt < SCHEMA_TTL_MS) {
+		return notionSchemaCache.schema;
+	}
+	const res = await retryingFetch(`https://api.notion.com/v1/databases/${env.NOTION_DATABASE_ID}`, {
+		headers: notionHeaders(env),
+	});
+	await assertNotionOk(res, 'notion_schema');
+	const data: any = await res.json();
+	const props = data?.properties || {};
+	const schema: NotionSchema = {};
+	for (const [name, def] of Object.entries<any>(props)) {
+		const type = def?.type as NotionPropertyType | undefined;
+		if (!type) continue;
+		const base: { type: NotionPropertyType; options?: string[] } = { type };
+		if (type === 'select' && Array.isArray(def?.select?.options)) {
+			base.options = def.select.options.map((o: any) => o?.name).filter(Boolean);
+		}
+		if (type === 'multi_select' && Array.isArray(def?.multi_select?.options)) {
+			base.options = def.multi_select.options.map((o: any) => o?.name).filter(Boolean);
+		}
+		schema[name] = base;
+	}
+	notionSchemaCache = { schema, fetchedAt: now };
+	return schema;
+}
+
+function coerceProperties(schema: NotionSchema, props: Record<string, unknown>): Record<string, unknown> {
+	const out: Record<string, unknown> = {};
+	for (const [name, raw] of Object.entries(props)) {
+		if (raw === undefined || raw === null) continue;
+		const def = schema[name];
+		if (!def) {
+			logEvent('prop_skip', { name });
+			continue;
+		}
+		switch (def.type) {
+			case 'title': {
+				const text = toRichText(raw);
+				if (text) out[name] = { title: text };
+				break;
+			}
+			case 'rich_text': {
+				const text = toRichText(raw);
+				if (text) out[name] = { rich_text: text };
+				break;
+			}
+			case 'select': {
+				const value = firstString(raw);
+				if (value) out[name] = { select: { name: value } };
+				break;
+			}
+			case 'multi_select': {
+				const values = toStringArray(raw);
+				out[name] = { multi_select: values.map((v) => ({ name: v })) };
+				break;
+			}
+			case 'number': {
+				const num = typeof raw === 'number' ? raw : Number(raw);
+				if (!Number.isNaN(num)) out[name] = { number: num };
+				break;
+			}
+			case 'date': {
+				if (typeof raw === 'string' && raw) {
+					out[name] = { date: { start: raw } };
+				} else if (
+					raw &&
+					typeof raw === 'object' &&
+					'start' in (raw as Record<string, unknown>)
+				) {
+					out[name] = { date: raw };
+				}
+				break;
+			}
+			case 'checkbox': {
+				out[name] = { checkbox: !!raw };
+				break;
+			}
+			case 'url': {
+				const url = firstString(raw);
+				if (url) out[name] = { url };
+				break;
+			}
+			case 'status': {
+				const status = firstString(raw);
+				if (status) out[name] = { status: { name: status } };
+				break;
+			}
+			default:
+				break;
+		}
+	}
+	return out;
+}
+
+type GeminiComposeResult = {
+	draftTitle: string;
+	draftBody: string;
+	citations: string[];
+	postAngle: string[];
+};
+
+async function composeWithGemini(env: Env, item: NotionPageLite): Promise<GeminiComposeResult> {
+	const key = env.GEMINI_API_KEY;
+	if (!key) throw new Error('Missing GEMINI_API_KEY');
+	const model = env.GEMINI_MODEL_FORCE || 'gemini-1.5-flash';
+	const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+	const contentPieces = [item.title, item.excerpt, item.quickAction, item.why]
+		.filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+		.map((p) => p.trim())
+		.join('\n');
+	const prompt =
+		'Summarize this source for Indian PMs. Return strict JSON: {"draftTitle":string,"draftBody":string,"citations":string[],"postAngle":string[]}. ' +
+		'Constraints: title<=120 chars; body<=12000 chars; include a \'Clause:\' line if present; otherwise leave citations with the source URL and a note to confirm. ' +
+		`SOURCE:\n${contentPieces || '(no excerpt)'}\nTYPE:${item.type || ''}\nDECISION_WINDOW:${item.decisionWindow || ''}\nURL:${item.url || ''}`;
+	const body = {
+		contents: [
+			{
+				parts: [
+					{
+						text: prompt,
+					},
+				],
+			},
+		],
+	};
+	const res = await retryingFetch(endpoint, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify(body),
+	});
+	if (!res.ok) {
+		throw new Error(`Gemini compose failed: ${res.status} ${await res.text()}`);
+	}
+	const data: any = await res.json();
+	const text =
+		data?.candidates?.[0]?.content?.parts
+			?.map((p: any) => p?.text)
+			.filter(Boolean)
+			.join('\n') || '';
+	const cleaned = text.replace(/```json|```/gi, '').trim();
+	const parsed = JSON.parse(cleaned) as GeminiComposeResult;
+	return parsed;
+}
+
+function finalizeDraftFromGemini(env: Env, base: DraftPost, result: GeminiComposeResult, page: NotionPageLite): DraftPost {
+	const maxBody = clamp(parseInt(env.MAX_BODY_LEN || '12000', 10), 1000, 20000);
+	const allowedAngles = new Set(['Playbook', 'Hot take', 'Explainer']);
+	const title = (result.draftTitle || '').trim().slice(0, 120) || base.title;
+	let body = (result.draftBody || '').trim();
+	if (!body) body = base.body;
+	if (!/what changed/i.test(body)) {
+		body = base.body;
+	}
+	body = body.slice(0, maxBody);
+	const rawAngles = Array.isArray(result.postAngle) ? result.postAngle : [];
+	const postAngle = rawAngles
+		.map((a) => (typeof a === 'string' ? a.trim() : ''))
+		.filter((a) => allowedAngles.has(a)) as DraftPost['postAngle'];
+	const url = page.url || base._meta?.sourceUrl || '';
+	const cited = new Set<string>();
+	const citationsArr = Array.isArray(result.citations) ? result.citations : [];
+	for (const c of citationsArr) {
+		if (typeof c === 'string' && c.trim()) cited.add(c.trim());
+	}
+	if (url) {
+		const hasUrl = Array.from(cited).some((c) => c.includes(url));
+		if (!hasUrl) cited.add(url);
+	}
+	const citations = Array.from(cited).join('\n') || base.citations || '';
+	return {
+		...base,
+		title,
+		body,
+		postAngle: postAngle && postAngle.length ? postAngle : base.postAngle,
+		citations,
+		contentHash: hash(`${title}|${body}|${citations}`),
+	};
+}
+
+async function retryingFetch(
+	input: RequestInfo,
+	init: RequestInit = {},
+	{
+		retries = 3,
+		backoffMs = 250,
+		maxBackoffMs = 5000,
+		retryStatuses,
+		label,
+	}: { retries?: number; backoffMs?: number; maxBackoffMs?: number; retryStatuses?: number[]; label?: string } = {}
+): Promise<Response> {
+	const allowed = retryStatuses || [408, 425, 429, 500, 502, 503, 504, 520, 522, 524];
+	const body = init.body;
+	let attempt = 0;
+	while (true) {
+		try {
+			const attemptInit = { ...init };
+			attemptInit.body = body;
+			const res = await fetch(input, attemptInit);
+			if (!allowed.includes(res.status) || attempt >= retries) {
+				return res;
+			}
+			const retryAfter = parseRetryAfter(res) ?? jitter(backoffMs * Math.pow(2, attempt), maxBackoffMs);
+			logEvent('retrying_fetch', {
+				label,
+				attempt,
+				status: res.status,
+				url: typeof input === 'string' ? input : (input as Request).url,
+			});
+			await waitMs(retryAfter);
+		} catch (err) {
+			if (attempt >= retries) throw err;
+			const delay = jitter(backoffMs * Math.pow(2, attempt), maxBackoffMs);
+			logEvent('retrying_fetch_error', {
+				label,
+				attempt,
+				error: errorMessage(err),
+				url: typeof input === 'string' ? input : (input as Request).url,
+			});
+			await waitMs(delay);
+		}
+		attempt++;
+	}
+}
+
+function toRichText(value: unknown): Array<{ type: 'text'; text: { content: string } }> | null {
+	const str = firstString(value) ?? '';
+	if (!str) return [{ type: 'text', text: { content: '' } }];
+	return [{ type: 'text', text: { content: str.slice(0, 4000) } }];
+}
+
+function firstString(value: unknown): string | null {
+	if (typeof value === 'string') return value;
+	if (Array.isArray(value)) {
+		const c = value.find((v) => typeof v === 'string');
+		return typeof c === 'string' ? c : null;
+	}
+	if (value && typeof value === 'object' && 'name' in (value as any) && typeof (value as any).name === 'string') {
+		return (value as any).name;
+	}
+	if (value instanceof Date) return value.toISOString();
+	return value != null ? String(value) : null;
+}
+
+function toStringArray(value: unknown): string[] {
+	if (Array.isArray(value)) {
+		return value.map((v) => (v != null ? String(v).trim() : '')).filter(Boolean);
+	}
+	if (typeof value === 'string') {
+		return value
+			.split(/[;,]/)
+			.map((v) => v.trim())
+			.filter(Boolean);
+	}
+	return value != null ? [String(value)] : [];
+}
+
+function parseRetryAfter(res: Response): number | null {
+	const header = res.headers.get('Retry-After');
+	if (!header) return null;
+	const seconds = Number(header);
+	if (!Number.isNaN(seconds)) return Math.max(0, seconds * 1000);
+	const date = new Date(header);
+	if (Number.isNaN(date.getTime())) return null;
+	return Math.max(0, date.getTime() - Date.now());
+}
+
+function jitter(base: number, max: number): number {
+	const capped = Math.min(max, base);
+	return Math.random() * capped + capped / 2;
+}
+
+async function waitMs(ms: number): Promise<void> {
+	await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractTimingClause(text?: string): string | null {
+	if (!text) return null;
+	const clauseLine = text
+		.split(/\n+/)
+		.map((line) => line.trim())
+		.find((line) => /^Clause:/i.test(line));
+	if (clauseLine) return clauseLine;
+	const iso = text.match(/\b\d{4}-\d{2}-\d{2}\b/);
+	if (iso) return iso[0];
+	const month = text.match(
+		/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},\s*\d{4}\b/
+	);
+	if (month) return month[0];
+	return null;
+}
+
+if (typeof process !== 'undefined' && process.env?.RUN_INLINE_TESTS === '1') {
+	(function testCoerceProperties() {
+		const schema: NotionSchema = {
+			'Post Angle': { type: 'multi_select' },
+			'Draft Title': { type: 'rich_text' },
+		};
+		const props = coerceProperties(schema, {
+			'Post Angle': ['Explainer', 'Playbook'],
+			'Draft Title': 'Sample',
+			Unknown: 'skip me',
+		});
+		const angles = (props['Post Angle'] as any)?.multi_select;
+		console.assert(Array.isArray(angles) && angles.length === 2, 'Post Angle should map to multi_select');
+		console.assert(!('Unknown' in props), 'Unknown props should be dropped');
+	})();
+
+	(function testExtractTimingClause() {
+		console.assert(extractTimingClause('See ISO 2024-05-01') === '2024-05-01', 'Should pick ISO date');
+		console.assert(
+			extractTimingClause('Clause: Section 3.2\nEffective on March 3, 2024') === 'Clause: Section 3.2',
+			'Should detect Clause line'
+		);
+	})();
+
+	(function testValidateDraftSoftPass() {
+		const draft: DraftPost = {
+			id: 'test1',
+			title: 'Rails update',
+			body: 'What changed\n• Update announced\n\nAction for this week\n• Ship fix now',
+			citations: 'https://example.com/source',
+			postAngle: ['Explainer'],
+			contentHash: hash('t'),
+			_meta: { sourceUrl: 'https://example.com/source' },
+		};
+		const res = validatePosts([draft])[0];
+		console.assert(res.valid === true, 'Draft should soft-pass without clause');
+		console.assert(res.post?.reviewerNote === 'Validator: No concrete clause', 'Reviewer note should be attached');
+	})();
+
+	console.log('inline tests ok');
 }
