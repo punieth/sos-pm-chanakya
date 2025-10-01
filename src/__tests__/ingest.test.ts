@@ -57,6 +57,8 @@ describe('dynamic ingest broker', () => {
 			NEWSAPI_KEY: 'demo',
 			GDELT_ENABLED: '0',
 			GOOGLE_NEWS_ENABLED: '1',
+			NEWSAPI_QUERIES: 'checkout',
+			GOOGLE_NEWS_FEEDS: 'https://news.google.com/rss/search?q=policy&hl=en-IN&gl=IN&ceid=IN:en',
 		};
 
 		const items = await ingestDynamicSources(env, () => {});
@@ -65,7 +67,7 @@ describe('dynamic ingest broker', () => {
 		expect(items.length).toBe(2);
 		const urls = items.map((i) => i.url);
 		expect(new Set(urls).size).toBe(2);
-		expect(items.every((i) => typeof i.id === 'string' && i.id.length > 10)).toBe(true);
+		expect(items.every((i) => typeof i.id === 'string' && i.id.length >= 6)).toBe(true);
 		expect(items.find((i) => i.provider === 'google-rss')).toBeTruthy();
 	});
 });

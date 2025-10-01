@@ -13,7 +13,7 @@ function makeClassified(id: string, overrides: Partial<ClassifiedItem> = {}): Cl
 		source: overrides.source || 'Example',
 		provider: overrides.provider || 'newsapi',
 		domain: overrides.domain || 'example.com',
-		eventClass: overrides.eventClass || 'PAYMENTS',
+		eventClass: overrides.eventClass || 'COMMERCE',
 		classConfidence: overrides.classConfidence ?? 0.8,
 		classSignals: overrides.classSignals || { lexicon: 0.7, embedding: 0.6 },
 		clusterId: overrides.clusterId,
@@ -37,8 +37,9 @@ describe('impact scoring', () => {
 	it('penalises stale items without trusted reach', () => {
 		const item = makeClassified('c', {
 			domain: 'unknown.io',
-			eventClass: 'OTHER',
+			eventClass: 'TREND',
 			description: 'Quarterly recap without clear action',
+			publishedAt: new Date(Date.now() - 10 * 86400000).toISOString(),
 		});
 		const [scored] = scoreImpact([item], {
 			graphNovelty: { c: false },

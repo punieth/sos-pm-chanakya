@@ -1,8 +1,22 @@
 import { ClassifiedItem, ImpactResult } from '../types';
 import { DAY_MS, nowUtc, parseUtc } from '../utils/time';
 import { isTrustedDomain } from './domains';
+import { indiaRelevanceScore, regulatorSignalScore } from '../utils/india';
 
-const MARKET_LEXICON = ['payment', 'payments', 'wallet', 'checkout', 'commerce', 'transaction', 'merchant', 'upi'];
+const COMMERCE_LEXICON = [
+	'payment',
+	'payments',
+	'wallet',
+	'checkout',
+	'commerce',
+	'transaction',
+	'merchant',
+	'upi',
+	'pricing',
+	'fee',
+	'subscription',
+	'billing',
+];
 
 export interface ImpactOptions {
 	now?: Date;
@@ -24,14 +38,52 @@ export function computeImpact(item: ClassifiedItem, options: ImpactOptions = {})
 	const recency = recencyScore(item.publishedAt, now);
 	const graphNovelty = graphNoveltyMap[item.id] ? 1 : 0;
 	const surfaceReach = surfaceReachScore(item, clusterDomains);
-	const marketTie = marketTieScore(item);
+	const commerceTie = commerceTieScore(item);
+	const indiaTie = indiaRelevanceScore({
+		title: item.title,
+		description: item.description,
+		source: item.source,
+		domain: item.domain,
+	});
+	const momentum = eventMomentumScore(item.eventClass);
+	const authorityTie = regulatorSignalScore({
+		title: item.title,
+		description: item.description,
+		source: item.source,
+		domain: item.domain,
+	});
 
-	const impact = clamp(recency * 0.45 + graphNovelty * 0.25 + surfaceReach * 0.2 + marketTie * 0.1);
+	let impact =
+		recency * 0.22 +
+		graphNovelty * 0.17 +
+		surfaceReach * 0.13 +
+		commerceTie * 0.1 +
+		indiaTie * 0.22 +
+		momentum * 0.05 +
+		authorityTie * 0.11;
+
+	if (authorityTie >= 0.45) {
+		impact += 0.12;
+	} else if (authorityTie >= 0.3) {
+		impact += 0.06;
+	}
+
+	if (indiaTie >= 0.65) impact += 0.04;
+
+	impact = clamp(impact);
 
 	return {
 		...item,
 		impactScore: impact,
-		impactBreakdown: { recency, graphNovelty, surfaceReach, marketTie },
+		impactBreakdown: {
+			recency,
+			graphNovelty,
+			surfaceReach,
+			commerceTie,
+			indiaTie,
+			momentum,
+			authority: authorityTie,
+		},
 		trustedDomainCount: clusterDomains[item.clusterId || item.id] || (isTrustedDomain(item.domain) ? 1 : 0),
 		graphNovelty,
 	};
@@ -55,10 +107,18 @@ function surfaceReachScore(item: ClassifiedItem, counts: Record<string, number>)
 	return isTrustedDomain(item.domain) ? 0.4 : 0.2;
 }
 
-function marketTieScore(item: ClassifiedItem): number {
-	if (item.eventClass === 'PAYMENTS') return 1;
+function commerceTieScore(item: ClassifiedItem): number {
+	if (item.eventClass === 'COMMERCE') return 1;
 	const text = `${item.title} ${item.description || ''}`.toLowerCase();
-	return MARKET_LEXICON.some((word) => text.includes(word)) ? 1 : 0;
+	return COMMERCE_LEXICON.some((word) => text.includes(word)) ? 1 : 0;
+}
+
+function eventMomentumScore(eventClass: ClassifiedItem['eventClass']): number {
+	if (eventClass === 'LAUNCH') return 0.9;
+	if (eventClass === 'PARTNERSHIP') return 0.7;
+	if (eventClass === 'POLICY') return 0.85;
+	if (eventClass === 'COMMERCE') return 0.8;
+	return 0.4;
 }
 
 function clamp(n: number): number {

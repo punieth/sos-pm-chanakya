@@ -27,6 +27,7 @@ const DEFAULT_LOGGER: Logger = () => {};
 export async function callLLM(env: LLMEnv, prompt: string, logger: Logger = DEFAULT_LOGGER): Promise<LLMResult> {
 	const geminiEnabled = flagEnabled(env.FEAT_GEMINI, true);
 	if (geminiEnabled) {
+		logger('llm_attempt', { provider: 'gemini', length: prompt.length, preview: prompt.slice(0, 180) });
 		const gemini = await callGemini(env, prompt, logger);
 		if (gemini.ok) return gemini;
 		logger('llm_failover', { provider: 'gemini', reason: gemini.reason });
@@ -36,6 +37,7 @@ export async function callLLM(env: LLMEnv, prompt: string, logger: Logger = DEFA
 	}
 
 	if (flagEnabled(env.FEAT_LOCAL, true)) {
+		logger('llm_attempt', { provider: 'local', reason: geminiEnabled ? 'gemini_unavailable' : 'gemini_disabled' });
 		return localFallback(prompt);
 	}
 
@@ -138,6 +140,10 @@ function localFallback(prompt: string): LLMResult {
 		status_code: 200,
 		provider: 'local',
 	};
+	console.log('LLM_LOCAL_FALLBACK', {
+		length: prompt.length,
+		preview: prompt.slice(0, 200),
+	});
 	const text = JSON.stringify({
 		signal_score: 5,
 		role_tag: 'Lead',

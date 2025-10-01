@@ -1,4 +1,4 @@
-export type SourceProvider = 'newsapi' | 'gdelt' | 'google-rss';
+export type SourceProvider = 'newsapi' | 'gdelt' | 'google-rss' | 'registry';
 
 export interface SourceItem {
 	title: string;
@@ -21,7 +21,7 @@ export interface NormalizedItem extends SourceItem {
 	entities?: EntityExtraction;
 }
 
-export type EventClassName = 'PARTNERSHIP' | 'PAYMENTS' | 'PLATFORM_POLICY' | 'MODEL_LAUNCH' | 'OTHER';
+export type EventClassName = 'LAUNCH' | 'PARTNERSHIP' | 'POLICY' | 'COMMERCE' | 'TREND';
 
 export interface ClassifiedItem extends NormalizedItem {
 	eventClass: EventClassName;
@@ -46,7 +46,10 @@ export interface ImpactResult extends ImpactInput {
 		recency: number;
 		graphNovelty: number;
 		surfaceReach: number;
-		marketTie: number;
+		commerceTie: number;
+		indiaTie: number;
+		momentum: number;
+		authority: number;
 	};
 }
 

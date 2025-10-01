@@ -4,29 +4,59 @@ import { decodeHtmlEntities, sanitize } from '../utils/text';
 import { nowUtc, subtractHours, toIsoString } from '../utils/time';
 import { XMLParser } from 'fast-xml-parser';
 
-type Logger = (phase: string, details: Record<string, unknown>) => void;
+export type Logger = (phase: string, details: Record<string, unknown>) => void;
 
 export interface BrokerEnv {
 	NEWSAPI_KEY?: string;
 	NEWSAPI_USER_AGENT?: string;
+	NEWSAPI_QUERIES?: string;
+	NEWSAPI_PAGE_SIZE?: string;
 	GDELT_ENABLED?: string;
+	GDELT_QUERIES?: string;
 	GOOGLE_NEWS_ENABLED?: string;
+	GOOGLE_NEWS_FEEDS?: string;
 }
 
 const WINDOW_HOURS = 48;
-const DEFAULT_LOGGER: Logger = () => {};
+export const DEFAULT_LOGGER: Logger = () => {};
+const DEFAULT_NEWSAPI_QUERIES = [
+	'platform OR fintech OR payments OR marketplace OR "artificial intelligence"',
+	'("India" OR Bharat) AND (fintech OR payments OR NPCI OR UPI OR RBI OR "Unified Payments Interface")',
+	'("ONDC" OR "Open Network for Digital Commerce")',
+	'("policy" OR regulation OR regulator OR compliance) AND (digital OR fintech OR payments OR pricing)'
+];
+const DEFAULT_GDELT_QUERIES = [
+	'(technology OR business) AND (platform OR commerce OR fintech OR policy)',
+	'(India OR Indian OR Bharat) AND (fintech OR policy OR payments OR platform OR regulator OR ONDC OR NPCI OR RBI)'
+];
+const DEFAULT_GOOGLE_NEWS_FEEDS = [
+	'https://news.google.com/rss/search?q=(%22India%22%20AND%20(fintech%20OR%20payments%20OR%20NPCI%20OR%20UPI%20OR%20RBI))%20when:48h&hl=en-IN&gl=IN&ceid=IN:en',
+	'https://news.google.com/rss/search?q=(ONDC%20OR%20%22Open%20Network%20for%20Digital%20Commerce%22)%20when:48h&hl=en-IN&gl=IN&ceid=IN:en',
+	'https://news.google.com/rss/search?q=(%22India%22%20AND%20(policy%20OR%20regulation%20OR%20regulator)%20AND%20(digital%20OR%20fintech%20OR%20payments))%20when:48h&hl=en-IN&gl=IN&ceid=IN:en'
+];
+const DEFAULT_NEWSAPI_PAGE_SIZE = 30;
 
 export async function ingestDynamicSources(env: BrokerEnv, logger: Logger = DEFAULT_LOGGER): Promise<NormalizedItem[]> {
 	const since = subtractHours(nowUtc(), WINDOW_HOURS);
 	const adapterPromises: Array<Promise<SourceItem[]>> = [];
 
-	adapterPromises.push(newsApiAdapter(env, since, logger));
+	const newsQueries = getNewsApiQueries(env);
+	for (const query of newsQueries) {
+		adapterPromises.push(newsApiAdapter(env, since, logger, query));
+	}
 
 	if (env.GDELT_ENABLED !== '0') {
-		adapterPromises.push(gdeltAdapter(env, since, logger));
+		const gdeltQueries = getGdeltQueries(env);
+		for (const query of gdeltQueries) {
+			adapterPromises.push(gdeltAdapter(env, since, logger, query));
+		}
 	}
+
 	if (env.GOOGLE_NEWS_ENABLED !== '0') {
-		adapterPromises.push(googleNewsRssAdapter(env, since, logger));
+		const feeds = getGoogleFeeds(env);
+		for (const feed of feeds) {
+			adapterPromises.push(googleNewsRssAdapter(env, since, logger, feed));
+		}
 	}
 
 	const settled = await Promise.allSettled(adapterPromises);
@@ -40,14 +70,17 @@ export async function ingestDynamicSources(env: BrokerEnv, logger: Logger = DEFA
 		}
 	}
 
-	const normalized = collected
-		.map((item) => finalise(item))
-		.filter((item): item is NormalizedItem => Boolean(item));
+	const normalized = normalizeSourceItems(collected);
+	logger('ingest_dynamic_complete', { total: normalized.length, raw: collected.length });
+	return normalized;
+}
 
-	const deduped = dedupeByCanonicalUrl(normalized);
-
-	logger('ingest_dynamic_complete', { total: deduped.length, raw: collected.length });
-	return deduped;
+export function normalizeSourceItems(collected: SourceItem[]): NormalizedItem[] {
+	return dedupeByCanonicalUrl(
+		collected
+			.map((item) => finalise(item))
+			.filter((item): item is NormalizedItem => Boolean(item))
+	);
 }
 
 function finalise(item: SourceItem): NormalizedItem | null {
@@ -72,7 +105,7 @@ function finalise(item: SourceItem): NormalizedItem | null {
 	};
 }
 
-function dedupeByCanonicalUrl(items: NormalizedItem[]): NormalizedItem[] {
+export function dedupeByCanonicalUrl(items: NormalizedItem[]): NormalizedItem[] {
 	const seen = new Map<string, NormalizedItem>();
 	for (const item of items) {
 		const key = item.canonicalUrl || item.url;
@@ -86,41 +119,41 @@ function dedupeByCanonicalUrl(items: NormalizedItem[]): NormalizedItem[] {
 	return Array.from(seen.values());
 }
 
-function preferNewer(a: NormalizedItem, b: NormalizedItem): NormalizedItem {
+export function preferNewer(a: NormalizedItem, b: NormalizedItem): NormalizedItem {
 	const aTime = Date.parse(a.publishedAt || '') || 0;
 	const bTime = Date.parse(b.publishedAt || '') || 0;
 	return bTime > aTime ? b : a;
 }
 
-async function newsApiAdapter(env: BrokerEnv, since: Date, logger: Logger): Promise<SourceItem[]> {
+async function newsApiAdapter(env: BrokerEnv, since: Date, logger: Logger, query: string): Promise<SourceItem[]> {
 	const key = env.NEWSAPI_KEY;
 	if (!key) {
-		logger('ingest_dynamic_newsapi_skip', { reason: 'missing_key' });
+		logger('ingest_dynamic_newsapi_skip', { reason: 'missing_key', query });
 		return [];
 	}
 
 	const url = new URL('https://newsapi.org/v2/everything');
 	url.searchParams.set('language', 'en');
-	url.searchParams.set('pageSize', '50');
+	url.searchParams.set('pageSize', String(clampPageSize(env.NEWSAPI_PAGE_SIZE)));
 	url.searchParams.set('from', toIsoString(since));
 	url.searchParams.set('sortBy', 'publishedAt');
-	url.searchParams.set('q', 'platform OR fintech OR payments OR marketplace OR "artificial intelligence"');
+	url.searchParams.set('q', query);
 
 	const res = await fetch(url.toString(), {
 		headers: {
 			'X-Api-Key': key,
-			'User-Agent': env.NEWSAPI_USER_AGENT || 'HotLaunchDiscovery/1.0 (+https://product.example)',
+			'User-Agent': env.NEWSAPI_USER_AGENT || 'PMNewsAgent/1.0 (+newsapi)',
 		},
 	});
 
 	if (!res.ok) {
-		logger('ingest_dynamic_newsapi_error', { status: res.status, body: await safeSnippet(res) });
+		logger('ingest_dynamic_newsapi_error', { status: res.status, body: await safeSnippet(res), query });
 		return [];
 	}
 
 	const data: any = await res.json();
 	const articles = Array.isArray(data?.articles) ? data.articles : [];
-	logger('ingest_dynamic_newsapi_ok', { count: articles.length });
+	logger('ingest_dynamic_newsapi_ok', { query, count: articles.length });
 
 	return articles
 		.map((article: any) => mapNewsApiArticle(article))
@@ -144,14 +177,14 @@ function mapNewsApiArticle(article: any): SourceItem | null {
  	};
 }
 
-async function gdeltAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promise<SourceItem[]> {
+async function gdeltAdapter(_env: BrokerEnv, since: Date, logger: Logger, query: string): Promise<SourceItem[]> {
 	const url = new URL('https://api.gdeltproject.org/api/v2/doc/doc');
 	url.searchParams.set('format', 'json');
 	url.searchParams.set('mode', 'ArtList');
 	url.searchParams.set('sort', 'datedesc');
 	url.searchParams.set('timespan', `${WINDOW_HOURS}HRS`);
 	url.searchParams.set('maxrecords', '75');
-	url.searchParams.set('query', buildGdeltQuery());
+	url.searchParams.set('query', query);
 
 	const res = await fetch(url.toString(), {
 		headers: {
@@ -160,7 +193,7 @@ async function gdeltAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promi
 		},
 	});
 	if (!res.ok) {
-		logger('ingest_dynamic_gdelt_error', { status: res.status, body: await safeSnippet(res) });
+		logger('ingest_dynamic_gdelt_error', { status: res.status, body: await safeSnippet(res), query });
 		return [];
 	}
 	const raw = await res.text();
@@ -168,20 +201,15 @@ async function gdeltAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promi
 	try {
 		data = JSON.parse(raw);
 	} catch (err) {
-		logger('ingest_dynamic_gdelt_error', { status: res.status, body: raw.slice(0, 200), reason: String(err) });
+		logger('ingest_dynamic_gdelt_error', { status: res.status, body: raw.slice(0, 200), reason: String(err), query });
 		return [];
 	}
 	const articles = Array.isArray(data?.articles) ? data.articles : [];
-	logger('ingest_dynamic_gdelt_ok', { count: articles.length });
+	logger('ingest_dynamic_gdelt_ok', { query, count: articles.length });
 
 	return articles
 		.map((article: any) => mapGdeltArticle(article))
 		.filter((x: SourceItem | null): x is SourceItem => Boolean(x));
-}
-
-function buildGdeltQuery(): string {
-	// Focus on technology and business signals without brand keywords
-	return '(technology OR business) AND (platform OR commerce OR fintech OR policy)';
 }
 
 function mapGdeltArticle(article: any): SourceItem | null {
@@ -202,28 +230,24 @@ function mapGdeltArticle(article: any): SourceItem | null {
 }
 
 
-async function googleNewsRssAdapter(_env: BrokerEnv, since: Date, logger: Logger): Promise<SourceItem[]> {
-	const url = new URL('https://news.google.com/rss/search');
-	const query = '(platform OR fintech OR payments OR marketplace OR "artificial intelligence" OR "policy" OR "model launch")';
-	url.searchParams.set('q', `${query} when:48h`);
-	url.searchParams.set('hl', 'en-US');
-	url.searchParams.set('gl', 'US');
-	url.searchParams.set('ceid', 'US:en');
-
-
-	const res = await fetch(url.toString());
-	if (!res.ok) {
-		logger('ingest_dynamic_google_error', { status: res.status, body: await safeSnippet(res) });
+async function googleNewsRssAdapter(_env: BrokerEnv, since: Date, logger: Logger, feedUrl: string): Promise<SourceItem[]> {
+	try {
+		const res = await fetch(feedUrl);
+		if (!res.ok) {
+			logger('ingest_dynamic_google_error', { status: res.status, body: await safeSnippet(res), feed: feedUrl });
+			return [];
+		}
+		const xml = await res.text();
+		const items = parseRss(xml);
+		logger('ingest_dynamic_google_ok', { feed: feedUrl, count: items.length });
+		const sinceMs = since.getTime();
+		return items
+			.filter((item) => Date.parse(item.publishedAt) >= sinceMs)
+			.map((item) => ({ ...item, provider: 'google-rss' as SourceProvider }));
+	} catch (err) {
+		logger('ingest_dynamic_google_exception', { feed: feedUrl, error: String(err) });
 		return [];
 	}
-
-	const xml = await res.text();
-	const items = parseRss(xml);
-	logger('ingest_dynamic_google_ok', { count: items.length });
-	const sinceMs = since.getTime();
-	return items
-		.filter((item) => Date.parse(item.publishedAt) >= sinceMs)
-		.map((item) => ({ ...item, provider: 'google-rss' as SourceProvider }));
 }
 
 const xmlParser = new XMLParser({ ignoreAttributes: false, trimValues: true });
@@ -275,3 +299,35 @@ export const adapters = {
 	gdeltAdapter,
 	googleNewsRssAdapter,
 };
+
+function getNewsApiQueries(env: BrokerEnv): string[] {
+	const list = parseList(env.NEWSAPI_QUERIES) || DEFAULT_NEWSAPI_QUERIES;
+	return list.slice(0, 6);
+}
+
+function getGdeltQueries(env: BrokerEnv): string[] {
+	const list = parseList(env.GDELT_QUERIES) || DEFAULT_GDELT_QUERIES;
+	return list.slice(0, 4);
+}
+
+function getGoogleFeeds(env: BrokerEnv): string[] {
+	const list = parseList(env.GOOGLE_NEWS_FEEDS) || DEFAULT_GOOGLE_NEWS_FEEDS;
+	return list.slice(0, 6);
+}
+
+function parseList(value?: string | null): string[] | null {
+	if (!value) return null;
+	const items = value
+		.split(/[|;]/)
+		.map((entry) => entry.trim())
+		.filter(Boolean);
+	return items.length ? items : null;
+}
+
+function clampPageSize(value?: string): number {
+	const parsed = value ? parseInt(value, 10) : NaN;
+	if (Number.isFinite(parsed) && parsed >= 10 && parsed <= 100) {
+		return parsed;
+	}
+	return DEFAULT_NEWSAPI_PAGE_SIZE;
+}

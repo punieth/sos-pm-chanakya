@@ -1,58 +1,58 @@
 import nlp from 'compromise';
-import vectors from './vectors.json';
 import { EventClassName, NormalizedItem, ClassifiedItem } from '../types';
 import { sanitize, tokenize } from '../utils/text';
 
-const LEXICONS: Record<EventClassName, string[]> = {
-	PARTNERSHIP: ['partners', 'integrates', 'adds support', 'powered by', 'joins forces'],
-	PAYMENTS: ['checkout', 'pay with', 'embedded payments', 'in-chat purchase', 'wallet'],
-	PLATFORM_POLICY: ['policy', 'pricing', 'fees', 'commission', 'guideline', 'terms'],
-	MODEL_LAUNCH: ['launches', 'releases', 'announces', 'rolls out', 'general availability'],
-	OTHER: [],
+const ARCHETYPES: EventClassName[] = ['LAUNCH', 'PARTNERSHIP', 'POLICY', 'COMMERCE', 'TREND'];
+
+const KEYWORDS: Record<EventClassName, string[]> = {
+	LAUNCH: ['launch', 'unveil', 'introduce', 'ship', 'debut', 'general availability', 'ga', 'go live', 'beta'],
+	PARTNERSHIP: ['partner', 'integration', 'joins forces', 'collaborate', 'alignment', 'ecosystem partner', 'merge'],
+	POLICY: ['policy', 'regulation', 'compliance', 'license', 'mandate', 'guideline', 'circular', 'order', 'notice'],
+	COMMERCE: ['checkout', 'payments', 'wallet', 'merchant', 'commerce', 'billing', 'upi', 'pos'],
+	TREND: [],
 };
 
-const CLASSES: EventClassName[] = ['PARTNERSHIP', 'PAYMENTS', 'PLATFORM_POLICY', 'MODEL_LAUNCH', 'OTHER'];
-
-type PrototypeVectors = Record<Exclude<EventClassName, 'OTHER'>, Record<string, number>>;
-
-const PROTOTYPES = vectors as PrototypeVectors;
+const SIGNAL_BOOSTS: Partial<Record<EventClassName, string[]>> = {
+	LAUNCH: ['upgrade', 'build', 'feature'],
+	PARTNERSHIP: ['alliance', 'integration', 'sdk'],
+	POLICY: ['ban', 'stipulation', 'compliance'],
+	COMMERCE: ['settlement', 'payout', 'transaction'],
+};
 
 export interface ClassificationResult {
 	class: EventClassName;
 	confidence: number;
 	lexiconScore: number;
-	embeddingScore: number;
 }
 
 export function classifyEvent(item: NormalizedItem): ClassificationResult {
-	const text = buildCorpus(item);
-	const normalized = normalizeVerbs(text);
-	const tokens = tokenize(normalized);
-	const vector = buildTextVector(tokens);
+	const corpus = buildCorpus(item);
+	const verbs = gatherVerbs(item, corpus);
+	const tokens = tokenize(corpus);
 
-	let bestClass: EventClassName = 'OTHER';
+	let bestClass: EventClassName = 'TREND';
 	let bestScore = 0;
 	let bestLex = 0;
-	let bestEmbed = 0;
 
-	for (const cls of CLASSES) {
-		if (cls === 'OTHER') continue;
-		const lexScore = lexicalScore(normalized, LEXICONS[cls]);
-		const embedScore = cosineSimilarity(vector, PROTOTYPES[cls] || {});
-		const combined = combineScores(lexScore, embedScore);
-		if (combined > bestScore) {
-			bestClass = cls;
-			bestScore = combined;
+	for (const archetype of ARCHETYPES) {
+		const lexScore = lexicalScore(verbs, tokens, corpus, archetype);
+		if (lexScore > bestScore) {
+			bestClass = archetype;
+			bestScore = lexScore;
 			bestLex = lexScore;
-			bestEmbed = embedScore;
 		}
 	}
 
-	if (bestScore < 0.25) {
-		return { class: 'OTHER', confidence: bestScore, lexiconScore: bestLex, embeddingScore: bestEmbed };
+	if (isMarketWrap(item)) {
+		bestClass = 'TREND';
+		bestScore = Math.min(bestScore, 0.18);
 	}
 
-	return { class: bestClass, confidence: bestScore, lexiconScore: bestLex, embeddingScore: bestEmbed };
+	if (bestClass === 'TREND' && bestScore < 0.15) {
+		bestScore = 0.12;
+	}
+
+	return { class: bestClass, confidence: bestScore, lexiconScore: bestLex };
 }
 
 export function applyClassification(item: NormalizedItem): ClassifiedItem {
@@ -61,57 +61,132 @@ export function applyClassification(item: NormalizedItem): ClassifiedItem {
 		...item,
 		eventClass: result.class,
 		classConfidence: result.confidence,
-		classSignals: { lexicon: result.lexiconScore, embedding: result.embeddingScore },
+		classSignals: { lexicon: result.lexiconScore, embedding: 0 },
 	};
 }
 
 function buildCorpus(item: NormalizedItem): string {
-	return sanitize(`${item.title || ''}. ${item.description || ''}`);
+	return sanitize(`${item.title || ''} ${item.description || ''}`);
 }
 
-function normalizeVerbs(text: string): string {
+function gatherVerbs(item: NormalizedItem, corpus: string): string[] {
+	const fromExtraction = Array.isArray(item.verbs) ? item.verbs : [];
+	const fallback = fallbackVerbsFromText(corpus);
+	return dedupeStrings([...fromExtraction, ...fallback].map(normalizeVerb));
+}
+
+function fallbackVerbsFromText(text: string): string[] {
+	const tokens = tokenize(text);
+	const verbs: string[] = [];
+	for (const token of tokens) {
+		if (token.length < 4) continue;
+		if (/(ing|ed|es|s)$/.test(token)) {
+			verbs.push(token);
+			const stripped = stripSuffix(token);
+			if (stripped !== token) verbs.push(stripped);
+			continue;
+		}
+		if (SEED_HINTS.has(token)) verbs.push(token);
+	}
+	return verbs;
+}
+
+const SEED_HINTS = new Set(
+	Object.values(KEYWORDS)
+		.flat()
+		.map((phrase) => phrase.split(' '))
+		.flat()
+		.map(toToken)
+		.filter(Boolean)
+);
+
+function stripSuffix(token: string): string {
+	if (token.endsWith('ies') && token.length > 4) return `${token.slice(0, -3)}y`;
+	if (token.endsWith('ing') && token.length > 4) return token.slice(0, -3);
+	if (token.endsWith('ed') && token.length > 4) return token.slice(0, -2);
+	if (token.endsWith('es') && token.length > 4) return token.slice(0, -2);
+	if (token.endsWith('s') && token.length > 3) return token.slice(0, -1);
+	return token;
+}
+
+function normalizeVerb(verb: string): string {
+	const text = sanitize(verb).toLowerCase();
 	if (!text) return '';
 	const doc = nlp(text);
-	return doc.verbs().toInfinitive().out('text') || text;
+	const normalized = doc.verbs().toInfinitive().out('text');
+	return toToken(normalized || text);
 }
 
-function lexicalScore(text: string, lexicon: string[]): number {
-	if (!lexicon || lexicon.length === 0) return 0;
-	const lowered = text.toLowerCase();
-	let hits = 0;
-	for (const phrase of lexicon) {
-		if (lowered.includes(phrase)) hits++;
-	}
-	return Math.min(1, hits / lexicon.length + (hits > 0 ? 0.2 : 0));
+function toToken(text: string): string {
+	return sanitize(text)
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, ' ')
+		.trim()
+		.replace(/\s+/g, ' ');
 }
 
-function buildTextVector(tokens: string[]): Record<string, number> {
-	const vector: Record<string, number> = {};
-	for (const token of tokens) {
-		if (!token) continue;
-		vector[token] = (vector[token] || 0) + 1;
+function lexicalScore(verbs: string[], tokens: string[], corpus: string, archetype: EventClassName): number {
+	if (archetype === 'TREND') return 0.08;
+	const keywords = (KEYWORDS[archetype] || []).map((term) => term.toLowerCase());
+	const boosters = (SIGNAL_BOOSTS[archetype] || []).map((term) => term.toLowerCase());
+	const text = corpus.toLowerCase();
+	const tokenSet = new Set(tokens);
+	const normalizedVerbs = verbs.map(toToken).filter(Boolean);
+
+	let keywordHits = 0;
+	for (const keyword of keywords) {
+		if (!keyword) continue;
+		if (text.includes(keyword)) keywordHits += 1.2;
+		if (tokenSet.has(keyword)) keywordHits += 1;
+		if (normalizedVerbs.includes(keyword)) keywordHits += 1.5;
 	}
-	const magnitude = Math.sqrt(Object.values(vector).reduce((sum, val) => sum + val * val, 0)) || 1;
-	for (const key of Object.keys(vector)) {
-		vector[key] = vector[key] / magnitude;
+
+	let boosterHits = 0;
+	for (const boost of boosters) {
+		if (!boost) continue;
+		if (text.includes(boost)) boosterHits += 0.6;
+		if (tokenSet.has(boost)) boosterHits += 0.5;
 	}
-	return vector;
+
+	if (archetype === 'LAUNCH' && normalizedVerbs.some((verb) => verb.startsWith('launch'))) {
+		keywordHits += 0.8;
+}
+	if (archetype === 'PARTNERSHIP' && text.includes('joins forces')) {
+		keywordHits += 1.2;
+	}
+
+	const raw = keywordHits * 0.18 + boosterHits * 0.12;
+	const base = keywordHits > 0 ? 0.25 : 0;
+	return Math.min(1, raw + base);
 }
 
-function cosineSimilarity(textVector: Record<string, number>, prototype: Record<string, number>): number {
-	let dot = 0;
-	let prototypeMagnitudeSq = 0;
-	for (const [term, weight] of Object.entries(prototype)) {
-		const textWeight = textVector[term] || 0;
-		dot += textWeight * weight;
-		prototypeMagnitudeSq += weight * weight;
+function dedupeStrings(values: string[]): string[] {
+	const seen = new Set<string>();
+	const output: string[] = [];
+	for (const value of values) {
+		const token = toToken(value);
+		if (!token || seen.has(token)) continue;
+		seen.add(token);
+		output.push(token);
 	}
-	if (prototypeMagnitudeSq === 0) return 0;
-	const prototypeMagnitude = Math.sqrt(prototypeMagnitudeSq);
-	return Math.max(0, Math.min(1, dot / prototypeMagnitude));
+	return output;
 }
 
-function combineScores(lexScore: number, embedScore: number): number {
-	const weighted = lexScore * 0.6 + embedScore * 0.4;
-	return Math.max(0, Math.min(1, weighted));
+function isMarketWrap(item: NormalizedItem): boolean {
+	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
+		.toLowerCase()
+		.trim();
+	if (!text) return false;
+	return MARKET_NOISE_PATTERNS.some((pattern) => text.includes(pattern));
 }
+
+const MARKET_NOISE_PATTERNS = [
+	'ahead of market',
+	'pre-market',
+	'stocks to watch',
+	'market wrap',
+	'closing bell',
+	'opening bell',
+	'market live updates',
+	'trades to watch',
+];

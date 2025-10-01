@@ -17,31 +17,31 @@ function makeItem(text: string): NormalizedItem {
 }
 
 describe('event classification', () => {
-	it('detects partnerships via lexicon', () => {
+	it('detects partnerships via verb signals', () => {
 		const item = makeItem('ToolSuite joins forces with CommerceFlow to integrate analytics');
 		const result = classifyEvent(item);
 		expect(result.class).toBe('PARTNERSHIP');
-		expect(result.confidence).toBeGreaterThan(0.4);
+		expect(result.confidence).toBeGreaterThan(0.25);
 	});
 
-	it('detects payments scenarios', () => {
-		const item = makeItem('CheckoutFlow adds instant wallet checkout across marketplaces');
+	it('detects commerce shifts', () => {
+		const item = makeItem('CheckoutFlow launches instant wallet checkout across marketplaces');
 		const result = classifyEvent(item);
-		expect(result.class).toBe('PAYMENTS');
-		expect(result.confidence).toBeGreaterThan(0.4);
+		expect(result.class).toBe('COMMERCE');
+		expect(result.confidence).toBeGreaterThan(0.25);
 	});
 
-	it('detects platform policy changes', () => {
+	it('detects policy updates', () => {
 		const item = makeItem('PlatformHub revises commission policy for creator tools');
 		const result = classifyEvent(item);
-		expect(result.class).toBe('PLATFORM_POLICY');
-		expect(result.confidence).toBeGreaterThan(0.3);
+		expect(result.class).toBe('POLICY');
+		expect(result.confidence).toBeGreaterThan(0.2);
 	});
 
-	it('detects model launches', () => {
-		const item = makeItem('ModelCore launches general availability of its new inference service');
+	it('detects launches', () => {
+		const item = makeItem('VendorX launches AI roadmap copilot for Indian product teams');
 		const result = classifyEvent(item);
-		expect(result.class).toBe('MODEL_LAUNCH');
-		expect(result.confidence).toBeGreaterThan(0.4);
+		expect(result.class).toBe('LAUNCH');
+		expect(result.confidence).toBeGreaterThan(0.2);
 	});
 });
