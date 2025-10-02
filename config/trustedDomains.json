@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "tiers": {
+    "tier1": ["reuters.com", "bloomberg.com", "financialexpress.com", "economictimes.com"],
+    "tier2": ["thehindu.com", "moneycontrol.com", "business-standard.com", "livemint.com"],
+    "regulator": ["rbi.org.in", "sebi.gov.in", "trai.gov.in", "npci.org.in"]
+  },
+  "scores": {
+    "reuters.com": 0.95,
+    "bloomberg.com": 0.92,
+    "financialexpress.com": 0.88,
+    "economictimes.com": 0.9,
+    "thehindu.com": 0.8,
+    "moneycontrol.com": 0.82,
+    "business-standard.com": 0.84,
+    "livemint.com": 0.85,
+    "rbi.org.in": 1,
+    "sebi.gov.in": 0.98,
+    "trai.gov.in": 0.98,
+    "npci.org.in": 0.96
+  },
+  "windowHours": 72
+}

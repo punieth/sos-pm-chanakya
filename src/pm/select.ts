@@ -1,6 +1,6 @@
-import { ImpactResult } from '../types';
+import { ScoredItem } from '../types';
 import { sanitize, tokenize } from '../utils/text';
-import { indiaRelevanceScore, isIndiaRelevant } from '../utils/india';
+import { indiaRelevanceScore } from '../utils/india';
 import { resolvePmTuning, type PmTuning, type TopicKey } from '../config/pmTuning';
 
 const STOPWORDS = new Set(['india', 'indian', 'update', 'policy', 'report', 'launch', 'new', 'latest']);
@@ -143,13 +143,23 @@ const TOKEN_CATEGORY_PATTERNS: Array<{ label: string; regex: RegExp }> = [
 	{ label: 'payments', regex: /^(payment|settle|upi|npci|remit|transaction|merchant)$/ },
 ];
 
-const CLASS_WEIGHT: Record<ImpactResult['eventClass'], number> = {
-	LAUNCH: 0.12,
-	PARTNERSHIP: 0.08,
-	POLICY: 0.15,
-	COMMERCE: 0.14,
-	TREND: 0,
+const CLASS_WEIGHT: Record<ScoredItem['eventClass'], number> = {
+  MODEL_LAUNCH: 0.12,
+  PRODUCT_UPDATE: 0.1,
+  PRICING_POLICY: 0.15,
+  PARTNERSHIP_INTEGRATION: 0.12,
+  PAYMENT_COMMERCE: 0.14,
+  DATA_PRIVACY: 0.11,
+  CONTENT_POLICY: 0.1,
+  PLATFORM_RULE: 0.13,
+  RISK_INCIDENT: 0.1,
+  TREND_ANALYSIS: 0.02,
+  OTHER: 0,
 };
+
+const POLICY_CLASSES = new Set<ScoredItem['eventClass']>(['PRICING_POLICY', 'PLATFORM_RULE', 'CONTENT_POLICY', 'DATA_PRIVACY']);
+const LAUNCH_CLASSES = new Set<ScoredItem['eventClass']>(['MODEL_LAUNCH', 'PRODUCT_UPDATE']);
+const INCIDENT_CLASSES = new Set<ScoredItem['eventClass']>(['RISK_INCIDENT']);
 
 const SUPPORTED_LANGS = new Set(['en', 'en-us', 'en-gb', 'hi', 'en_in', 'en-in']);
 
@@ -211,7 +221,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 export interface RankedCandidate {
-	item: ImpactResult;
+	item: ScoredItem;
 	baseScore: number;
 	finalScore: number;
 	indiaScore: number;
@@ -221,7 +231,7 @@ export interface RankedCandidate {
 }
 
 export interface ShortlistedCandidate {
-	item: ImpactResult;
+	item: ScoredItem;
 	pmScore: number;
 	indiaScore: number;
 	productScore: number;
@@ -233,7 +243,7 @@ export interface ShortlistedCandidate {
 }
 
 export function selectPmStories(
-	items: ImpactResult[],
+	items: ScoredItem[],
 	limit: number,
 	tuningOverrides?: Partial<PmTuning>
 ): ShortlistedCandidate[] {
@@ -280,7 +290,7 @@ export function selectPmStories(
 	return shortlist;
 }
 
-export function rankForPm(items: ImpactResult[], tuning: PmTuning): RankedCandidate[] {
+export function rankForPm(items: ScoredItem[], tuning: PmTuning): RankedCandidate[] {
 	const weightFractions = getWeightFractions(tuning.topicWeights);
 	return items
 		.map((item) => {
@@ -312,7 +322,7 @@ export function rankForPm(items: ImpactResult[], tuning: PmTuning): RankedCandid
 			console.log('PM_RANK', {
 				title: item.title,
 				eventClass: item.eventClass,
-				impact: item.impactScore.toFixed(3),
+				impact: item.impact.impact.toFixed(3),
 				base: baseScore.toFixed(3),
 				final: finalScore.toFixed(3),
 				topicScores,
@@ -323,19 +333,19 @@ export function rankForPm(items: ImpactResult[], tuning: PmTuning): RankedCandid
 		.sort((a, b) => b.finalScore - a.finalScore);
 }
 
-function computeBaseScore(item: ImpactResult, indiaScore: number): number {
-	let score = item.impactScore;
+function computeBaseScore(item: ScoredItem, indiaScore: number): number {
+	let score = item.impact.impact;
 	score += indiaScore * 0.2;
 	if (indiaScore < 0.2) score -= 0.1;
 	score += CLASS_WEIGHT[item.eventClass] || 0;
 	if ((item.trustedDomainCount || 0) > 1) score += 0.05;
-	const authority = item.impactBreakdown.authority || 0;
+	const authority = item.impact.components.authority || 0;
 	if (authority >= 0.45) score += 0.08;
 	else if (authority >= 0.3) score += 0.04;
 	return clamp(score, 0, 1);
 }
 
-function deriveSignals(item: ImpactResult): string[] {
+function deriveSignals(item: ScoredItem): string[] {
 	const tokens = tokenize(sanitize(`${item.title || ''} ${item.description || ''}`));
 	const counts: Record<string, number> = {};
 	for (const token of tokens) {
@@ -350,19 +360,20 @@ function deriveSignals(item: ImpactResult): string[] {
 }
 
 function deriveUrgency(
-	pmScore: number,
-	item: ImpactResult,
-	topicScores: Record<TopicKey, number>,
-	tuning: PmTuning
+  pmScore: number,
+  item: ScoredItem,
+  topicScores: Record<TopicKey, number>,
+  _tuning: PmTuning
 ): '⚡' | '🛑' | '🧩' {
-	if (item.eventClass === 'POLICY' && pmScore >= 0.6) return '🛑';
-	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
-		.toLowerCase();
-	if (item.eventClass === 'LAUNCH' && isIpoStory(text)) return '⚡';
-	if (topicScores.product >= 0.5 && pmScore >= 0.55) return '⚡';
-	if (topicScores.ai >= 0.6 && pmScore >= 0.5) return '⚡';
-	if (pmScore >= 0.72) return '⚡';
-	return '🧩';
+  const normalizedText = sanitize(`${item.title || ''} ${item.description || ''}`).toLowerCase();
+  if (POLICY_CLASSES.has(item.eventClass) && pmScore >= 0.6) return '🛑';
+  if (INCIDENT_CLASSES.has(item.eventClass) && pmScore >= 0.55) return '🛑';
+  if (LAUNCH_CLASSES.has(item.eventClass) && isIpoStory(normalizedText)) return '⚡';
+  if (topicScores.product >= 0.5 && pmScore >= 0.55) return '⚡';
+  if (topicScores.ai >= 0.6 && pmScore >= 0.5) return '⚡';
+  if (item.eventClass === 'PAYMENT_COMMERCE' && pmScore >= 0.6) return '⚡';
+  if (pmScore >= 0.72) return '⚡';
+  return '🧩';
 }
 
 function isIpoStory(text: string): boolean {
@@ -370,13 +381,13 @@ function isIpoStory(text: string): boolean {
 	return IPO_KEYWORDS.some((keyword) => text.includes(keyword));
 }
 
-function computeTopicScores(item: ImpactResult): Record<TopicKey, number> {
-	const authority = clamp(item.impactBreakdown?.authority || 0, 0, 1);
+function computeTopicScores(item: ScoredItem): Record<TopicKey, number> {
+	const authority = clamp(item.impact.components.authority || 0, 0, 1);
 	const product = productSignalScore(item);
 	const ai = aiSignalScore(item);
-	const momentum = clamp(item.impactBreakdown?.momentum || 0, 0, 1);
-	const novelty = clamp(item.impactBreakdown?.graphNovelty || 0, 0, 1);
-	const otherBase = clamp(item.impactScore, 0, 1);
+	const momentum = clamp(item.impact.components.momentum || 0, 0, 1);
+	const novelty = clamp(item.impact.components.graphNovelty || 0, 0, 1);
+	const otherBase = clamp(item.impact.impact, 0, 1);
 	let other = clamp(otherBase * 0.4 + momentum * 0.2 + novelty * 0.1, 0, 0.6);
 	if (authority >= 0.35) {
 		other = Math.min(other, 0.3);
@@ -646,7 +657,7 @@ function buildTopicProfiles(list: RankedCandidate[]): Map<string, TopicProfile> 
 	return profiles;
 }
 
-function buildTopicText(item: ImpactResult): string {
+function buildTopicText(item: ScoredItem): string {
 	const parts: string[] = [];
 	if (item.title) parts.push(stripSourceSuffix(item.title));
 	if (item.description) parts.push(item.description);
@@ -686,7 +697,7 @@ function categorizeToken(token: string): string | null {
 	return null;
 }
 
-function productSignalScore(item: ImpactResult): number {
+function productSignalScore(item: ScoredItem): number {
 	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
 		.toLowerCase();
 	if (!text) return 0;
@@ -710,7 +721,7 @@ function productSignalScore(item: ImpactResult): number {
 	return Math.min(1, score);
 }
 
-function aiSignalScore(item: ImpactResult): number {
+function aiSignalScore(item: ScoredItem): number {
 	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
 		.toLowerCase();
 	if (!text) return 0;
@@ -795,7 +806,7 @@ function hammingDistance(a: bigint, b: bigint): number {
 	return count;
 }
 
-function isEntertainment(item: ImpactResult): boolean {
+function isEntertainment(item: ScoredItem): boolean {
 	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
 		.toLowerCase()
 		.replace(/[^a-z0-9\s]/g, ' ');
@@ -806,14 +817,14 @@ function isEntertainment(item: ImpactResult): boolean {
 	return false;
 }
 
-function isMarketNoise(item: ImpactResult): boolean {
+function isMarketNoise(item: ScoredItem): boolean {
 	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
 		.toLowerCase()
 		.trim();
 	if (!text) return false;
 	return MARKET_NOISE_PATTERNS.some((pattern) => text.includes(pattern));
 }
-function isSupportedLanguage(item: ImpactResult): boolean {
+function isSupportedLanguage(item: ScoredItem): boolean {
 	const lang = (item.language || '').toLowerCase();
 	if (!lang) {
 		return /[a-z]/i.test(`${item.title || ''} ${item.description || ''}`);

@@ -59,7 +59,8 @@ export function parsePmTuning(raw?: string | null): Partial<PmTuning> | undefine
 			const hasDirect = Object.keys(direct).length > 0;
 			const result: Partial<PmTuning> = {};
 			if (hasDirect) {
-				result.topicWeights = direct;
+				const normalized = normalizeRawWeights(direct);
+				result.topicWeights = normalized;
 			}
 			if (typeof parsed.maxShortlist === 'number') {
 				result.maxShortlist = parsed.maxShortlist;

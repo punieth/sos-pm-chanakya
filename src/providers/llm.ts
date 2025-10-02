@@ -1,7 +1,7 @@
 import type { ScoreTelemetry } from '../types';
 
 const DEFAULT_GEMINI_MODELS = ['gemini-2.0-flash-lite', 'gemini-1.5-flash'];
-const MAX_RETRIES = 2;
+const MAX_RETRIES = 5;
 
 type Logger = (phase: string, details: Record<string, unknown>) => void;
 
@@ -68,11 +68,7 @@ async function callGemini(env: LLMEnv, prompt: string, logger: Logger): Promise<
 	if (dailyCap > 0) {
 		const used = parseInt((await env.SEEN.get(todayKey)) || '0', 10);
 		if (used >= dailyCap) {
-			return {
-				ok: false,
-				reason: 'Daily LLM limit reached',
-				telemetry,
-			};
+			return { ok: false, reason: 'Daily LLM limit reached', telemetry };
 		}
 		await env.SEEN.put(todayKey, String(used + 1), { expirationTtl: 60 * 60 * 26 });
 	}
@@ -109,7 +105,7 @@ async function callGemini(env: LLMEnv, prompt: string, logger: Logger): Promise<
 				} else if (res.status === 429 || res.status === 503) {
 					lastReason = `transient_${res.status}`;
 					logger('llm_retry', { provider: 'gemini', model, retry, status: res.status });
-					await waitMs(jitter(300 * Math.pow(2, retry), 2800));
+					await waitMs(computeBackoffDelay(retry));
 					continue;
 				} else {
 					lastReason = `gemini_${res.status}`;
@@ -121,18 +117,13 @@ async function callGemini(env: LLMEnv, prompt: string, logger: Logger): Promise<
 				lastReason = `gemini_exception_${(err as Error).name || 'unknown'}`;
 				logger('llm_retry_error', { provider: 'gemini', model, retry, error: String(err) });
 				telemetry.status_code = 0;
-				await waitMs(jitter(400 * Math.pow(2, retry), 2200));
+				await waitMs(computeBackoffDelay(retry));
 			}
 		}
 	}
 
-	return {
-		ok: false,
-		reason: lastReason,
-		telemetry,
-	};
+	return { ok: false, reason: lastReason, telemetry };
 }
-
 function localFallback(prompt: string): LLMResult {
 	const telemetry: ScoreTelemetry = {
 		model_used: 'local-template',
@@ -191,7 +182,13 @@ function waitMs(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function jitter(base: number, max: number): number {
-	const jitterVal = Math.random() * base;
-	return Math.min(max, base + jitterVal);
+function jitter(base: number): number {
+	const spread = base * 0.25;
+	return Math.max(0, base - spread + Math.random() * (spread * 2));
+}
+
+function computeBackoffDelay(retry: number): number {
+	const base = 300 * Math.pow(2, retry);
+	const capped = Math.min(5000, base);
+	return Math.max(300, jitter(capped));
 }

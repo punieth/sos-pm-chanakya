@@ -3,6 +3,7 @@ import { type LLMEnv } from './providers/llm';
 import { selectPmStories, type ShortlistedCandidate } from './pm/select';
 import { parsePmTuning } from './config/pmTuning';
 import { composePmPost, type PmPost } from './pm/compose';
+import { logRun, type LlmRunStats } from './telemetry/runLog';
 
 interface Env extends DiscoveryEnv, LLMEnv {
 	PM_MAX_POSTS?: string;
@@ -32,7 +33,7 @@ export default {
 					url: item.url,
 					domain: item.domain,
 					eventClass: item.eventClass,
-					impactScore: item.impactScore,
+					impactScore: item.impact.impact,
 					pmScore,
 					finalScore,
 					topic,
@@ -55,6 +56,7 @@ async function orchestrate(env: Env): Promise<{
 	providerCounts: Record<string, number>;
 	posts: PmPost[];
 	generationNotes: { shortlisted: number; limit: number };
+	runLog?: Awaited<ReturnType<typeof logRun>>;
 }> {
 	const startedAt = new Date().toISOString();
 	const discovery = await ingestDynamicDiscovery(env);
@@ -68,12 +70,35 @@ async function orchestrate(env: Env): Promise<{
 		posts.push(post);
 	}
 
+	const llmStats: LlmRunStats = {
+		attempts: posts.length,
+		fallbacks: posts.filter((post) => post.llmStatus === 'fallback').length,
+		failures: posts.filter((post) => post.llmStatus === 'error').length,
+		providerBreakdown: posts.reduce<Record<string, number>>((acc, post) => {
+			const key = post.llmProvider || 'unknown';
+			acc[key] = (acc[key] || 0) + 1;
+			return acc;
+		}, {}),
+	};
+
+	const batchId = discovery.calibration?.batchId ?? `${Date.now()}`;
+	const runLogEntry = await logRun({
+		batchId,
+		pipeline: discovery.pipeline,
+		shortlisted: discovery.items,
+		allItems: discovery.allItems,
+		clusters: discovery.clusters,
+		llm: llmStats,
+		calibration: discovery.calibration,
+	});
+
 	return {
 		startedAt,
 		scanned: discovery.stats.scanned,
 		providerCounts: discovery.providerCounts,
 		posts,
 		generationNotes: { shortlisted: shortlisted.length, limit },
+		runLog: runLogEntry,
 	};
 }
 

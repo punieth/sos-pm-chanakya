@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "classes": {
+    "MODEL_LAUNCH": {
+      "verbs": ["launch", "rollout", "ship", "introduce", "debut", "unveil"],
+      "nouns": ["model", "feature", "capability", "toolkit", "stack"],
+      "phrases": ["general availability", "beta release", "go live"]
+    },
+    "PRODUCT_UPDATE": {
+      "verbs": ["update", "expand", "upgrade", "revamp", "refresh"],
+      "nouns": ["roadmap", "module", "workflow", "dashboard", "experience"],
+      "phrases": ["new version", "major update", "feature pack"]
+    },
+    "PRICING_POLICY": {
+      "verbs": ["price", "charge", "levy", "subsidise", "regulate"],
+      "nouns": ["tariff", "fee", "commission", "rate", "surcharge"],
+      "phrases": ["pricing policy", "fee change", "adds surcharge"]
+    },
+    "PARTNERSHIP_INTEGRATION": {
+      "verbs": ["partner", "integrate", "ally", "collaborate", "embed"],
+      "nouns": ["integration", "alliance", "program", "bundle", "ecosystem"],
+      "phrases": ["joins forces", "signs deal", "technology tie-up"]
+    },
+    "PAYMENT_COMMERCE": {
+      "verbs": ["pay", "settle", "transact", "collect", "checkout"],
+      "nouns": ["payments", "commerce", "merchant", "invoice", "gateway"],
+      "phrases": ["transaction volume", "checkout flow", "payment rail"]
+    },
+    "DATA_PRIVACY": {
+      "verbs": ["restrict", "protect", "encrypt", "comply", "breach"],
+      "nouns": ["privacy", "data", "consent", "audit", "processing"],
+      "phrases": ["data sharing", "retention rule", "privacy notice"]
+    },
+    "CONTENT_POLICY": {
+      "verbs": ["moderate", "remove", "curate", "flag", "label"],
+      "nouns": ["content", "policy", "guideline", "review", "algorithm"],
+      "phrases": ["content policy", "safety update", "moderation change"]
+    },
+    "PLATFORM_RULE": {
+      "verbs": ["mandate", "enforce", "require", "approve", "certify"],
+      "nouns": ["platform", "rule", "compliance", "standard", "framework"],
+      "phrases": ["platform rule", "new requirement", "compliance window"]
+    },
+    "RISK_INCIDENT": {
+      "verbs": ["breach", "leak", "outage", "disrupt", "compromise"],
+      "nouns": ["incident", "risk", "fraud", "failure", "downtime"],
+      "phrases": ["service disruption", "security incident", "system outage"]
+    },
+    "TREND_ANALYSIS": {
+      "verbs": ["trend", "grow", "accelerate", "surge", "decline"],
+      "nouns": ["adoption", "usage", "volume", "trend", "report"],
+      "phrases": ["market trend", "snapshot", "research note"]
+    }
+  }
+}

@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "bias": -1.35,
+  "weights": {
+    "publisher_geo": 0.9,
+    "regulator_signal": 0.85,
+    "event_class_lift": 0.6,
+    "entity_overlap": 0.75,
+    "semantic_similarity": 1.1,
+    "keyword_prior": 0.4
+  },
+  "eventClassLift": {
+    "PRICING_POLICY": 0.4,
+    "PLATFORM_RULE": 0.45,
+    "PAYMENT_COMMERCE": 0.35,
+    "DATA_PRIVACY": 0.25,
+    "CONTENT_POLICY": 0.25
+  },
+  "geoTld": {
+    ".in": 1,
+    ".co.in": 0.9,
+    ".org.in": 0.85,
+    ".gov.in": 1,
+    ".asia": 0.4
+  },
+  "trustedIndianDomains": {
+    "rbi.org.in": 1,
+    "sebi.gov.in": 0.9,
+    "trai.gov.in": 0.9,
+    "npci.org.in": 0.85,
+    "financialexpress.com": 0.55,
+    "economictimes.com": 0.6,
+    "moneycontrol.com": 0.58,
+    "yourstory.com": 0.45
+  },
+  "indianEntityPrefixes": ["india", "indian", "bharat", "npci", "rbi", "sebi", "trai", "meity"],
+  "semantic": {
+    "prototypeCount": 200,
+    "similarityFloor": 0.1
+  },
+  "keywordHints": ["india", "indian", "bharat", "upi", "aadhaar", "gst", "rupee", "delhi", "mumbai"],
+  "isotonic": {
+    "breakpoints": [0, 0.2, 0.35, 0.5, 0.65, 0.8, 1],
+    "values": [0.05, 0.18, 0.32, 0.5, 0.68, 0.83, 0.95]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "updatedAt": "2024-08-01T00:00:00.000Z",
+  "weights": {
+    "recency": 0.18,
+    "surfaceReach": 0.18,
+    "graphNovelty": 0.18,
+    "authority": 0.10,
+    "commerceTie": 0.12,
+    "indiaTie": 0.16,
+    "momentum": 0.08
+  },
+  "decay": {
+    "recencyHalfLifeHours": 48,
+    "momentumWindowHours": 18
+  },
+  "caps": {
+    "surfaceReachDomains": 10,
+    "momentumSpike": 1
+  }
+}

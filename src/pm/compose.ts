@@ -1,4 +1,4 @@
-import { ImpactResult } from '../types';
+import { ScoredItem } from '../types';
 import { callLLM, LLMEnv } from '../providers/llm';
 import { sanitize } from '../utils/text';
 import { ShortlistedCandidate } from './select';
@@ -16,7 +16,7 @@ export interface PmPost {
 	url: string;
 	domain: string;
 	publishedAt?: string;
-	eventClass: ImpactResult['eventClass'];
+	eventClass: ScoredItem['eventClass'];
 	impactScore: number;
 	pmScore: number;
 	urgency: '⚡' | '🛑' | '🧩';
@@ -27,40 +27,59 @@ export interface PmPost {
 	signals: string[];
 	llmStatus: 'ok' | 'fallback' | 'error';
 	llmReason?: string;
+	llmProvider?: string;
 }
 
 // ---------- Class normalization (prevents TS union overlap issues) ----------
 type CanonicalClass = 'POLICY' | 'COMMERCE' | 'LAUNCH' | 'PARTNERSHIP' | 'TREND' | 'OTHER';
 
 const CLASS_MAP: Record<string, CanonicalClass> = {
-	// policy-ish
-	POLICY: 'POLICY',
-	PLATFORM_POLICY: 'POLICY',
-	PRICING: 'POLICY',
+  PRICING_POLICY: 'POLICY',
+  PLATFORM_RULE: 'POLICY',
+  CONTENT_POLICY: 'POLICY',
+  DATA_PRIVACY: 'POLICY',
+  POLICY: 'POLICY',
+  PLATFORM_POLICY: 'POLICY',
+  PRICING: 'POLICY',
 
-	// commerce/payments
-	COMMERCE: 'COMMERCE',
-	PAYMENTS: 'COMMERCE',
+  PAYMENT_COMMERCE: 'COMMERCE',
+  COMMERCE: 'COMMERCE',
+  PAYMENTS: 'COMMERCE',
 
-	// partnerships/integrations
-	PARTNERSHIP: 'PARTNERSHIP',
-	INTEGRATION: 'PARTNERSHIP',
+  PARTNERSHIP_INTEGRATION: 'PARTNERSHIP',
+  PARTNERSHIP: 'PARTNERSHIP',
+  INTEGRATION: 'PARTNERSHIP',
 
-	// launches (bucket additions/model launches here)
-	LAUNCH: 'LAUNCH',
-	ADDITION: 'LAUNCH',
-	MODEL_LAUNCH: 'LAUNCH',
+  MODEL_LAUNCH: 'LAUNCH',
+  PRODUCT_UPDATE: 'LAUNCH',
+  LAUNCH: 'LAUNCH',
+  ADDITION: 'LAUNCH',
 
-	// macro trend
-	TREND: 'TREND',
+  TREND_ANALYSIS: 'TREND',
+  TREND: 'TREND',
 
-	// fallback
-	OTHER: 'OTHER',
+  RISK_INCIDENT: 'OTHER',
+  OTHER: 'OTHER',
 };
 
 function canonClass(raw: unknown): CanonicalClass {
 	const key = String(raw || 'OTHER').toUpperCase();
 	return CLASS_MAP[key] ?? 'OTHER';
+}
+
+type ToneHint = 'threat' | 'upside' | 'neutral';
+
+const THREAT_CLASSES = new Set<CanonicalClass>(['POLICY', 'TREND']);
+const UPSIDE_CLASSES = new Set<CanonicalClass>(['LAUNCH', 'PARTNERSHIP']);
+function deriveTone(candidate: ShortlistedCandidate): ToneHint {
+  const cls = canonClass(candidate.item.eventClass);
+  const impact = candidate.item.impact.impact;
+  if (candidate.urgency === '🛑') return 'threat';
+  if (cls === 'POLICY') return 'threat';
+  if (candidate.item.eventClass === 'RISK_INCIDENT') return 'threat';
+  if (cls === 'LAUNCH' || cls === 'PARTNERSHIP') return 'upside';
+  if (candidate.item.eventClass === 'PAYMENT_COMMERCE' && impact >= 0.65) return 'upside';
+  return impact >= 0.75 ? 'upside' : 'neutral';
 }
 
 // --- Style helpers: make lines punchy + ban fluff ---
@@ -95,7 +114,8 @@ function limit(s: string, n: number) {
 }
 
 export async function composePmPost(env: LLMEnv, candidate: ShortlistedCandidate): Promise<PmPost> {
-	const prompt = buildPrompt(candidate);
+	const tone = deriveTone(candidate);
+	const prompt = buildPrompt(candidate, tone);
 	const result = await callLLM(env, prompt, (phase, details) => {
 		console.log('LLM_EVENT', phase, details);
 	});
@@ -118,7 +138,7 @@ export async function composePmPost(env: LLMEnv, candidate: ShortlistedCandidate
 		: provider === 'local'
 		? 'llm_local_template'
 		: 'parse_failed';
-	const fieldsRaw = parsed || fallbackFields(candidate);
+	const fieldsRaw = parsed || fallbackFields(candidate, tone);
 	const fields = polishFields(fieldsRaw, candidate);
 
 	const watchSignals = fields.watch.length >= 2 ? fields.watch.slice(0, 2) : ensureWatch(candidate, fields.watch);
@@ -129,7 +149,7 @@ export async function composePmPost(env: LLMEnv, candidate: ShortlistedCandidate
 		domain: candidate.item.domain,
 		publishedAt: candidate.item.publishedAt,
 		eventClass: candidate.item.eventClass,
-		impactScore: candidate.item.impactScore,
+		impactScore: candidate.item.impact.impact,
 		pmScore: candidate.pmScore,
 		urgency: candidate.urgency,
 		hook: `${candidate.urgency} ${fields.hook}`.trim(),
@@ -139,6 +159,7 @@ export async function composePmPost(env: LLMEnv, candidate: ShortlistedCandidate
 		signals: candidate.signals,
 		llmStatus: status,
 		llmReason: reason,
+		llmProvider: provider,
 	};
 }
 
@@ -152,7 +173,7 @@ function polishFields(f: PmCompositionFields, _candidate: ShortlistedCandidate):
 	};
 }
 
-function buildPrompt(candidate: ShortlistedCandidate): string {
+function buildPrompt(candidate: ShortlistedCandidate, tone: ToneHint): string {
 	const { item, pmScore, indiaScore, signals } = candidate;
 	const title = sanitize(item.title) || 'Untitled story';
 	const source = sanitize(item.source || item.domain || 'unknown source');
@@ -162,7 +183,7 @@ function buildPrompt(candidate: ShortlistedCandidate): string {
 		indiaScore >= 0.45
 			? 'India impact is clear—speak directly to Indian users, markets, or regulators.'
 			: 'India impact is weak. Explicitly say it is a watch item for India (not action now).';
-	const breakdown = item.impactBreakdown;
+	const breakdown = item.impact.components;
 	const signalsText = signals.length ? signals.join(', ') : 'no additional signals';
 	const authority = typeof breakdown.authority === 'number' ? breakdown.authority : 0;
 
@@ -182,6 +203,7 @@ function buildPrompt(candidate: ShortlistedCandidate): string {
 	];
 
 	return `You are an Indian product war-room lead. Write a four-line PM brief in sharp, direct language.
+Tone knob: ${tone}. If threat, make it urgent; if upside, make it opportunistic; neutral = steady.
 
 Return STRICT JSON (no prose, no markdown) with EXACT keys:
 {
@@ -199,7 +221,7 @@ CONTEXT
 - Source: ${source}
 - URL: ${item.url}
 - Event archetype: ${cls}
-- Impact score: ${(item.impactScore * 100).toFixed(0)} / 100
+- Impact score: ${(item.impact.impact * 100).toFixed(0)} / 100
 - PM score: ${(pmScore * 100).toFixed(0)} / 100
 - Impact breakdown: recency ${breakdown.recency.toFixed(2)}, novelty ${breakdown.graphNovelty.toFixed(
 		2
@@ -209,6 +231,7 @@ CONTEXT
 - Summary: ${summary}
 - Potential signals: ${signalsText}
 - India guidance: ${indiaHint}
+- Tone hint: ${tone.toUpperCase()} (write copy that matches this stance)
 
 STYLE EXAMPLES (follow tone/shape, not content):
 ${JSON.stringify(EXAMPLE_GOOD, null, 2)}
@@ -248,7 +271,7 @@ function parseFields(text?: string | null): PmCompositionFields | null {
 	}
 }
 
-function fallbackFields(candidate: ShortlistedCandidate): PmCompositionFields {
+function fallbackFields(candidate: ShortlistedCandidate, tone: ToneHint): PmCompositionFields {
 	const { item } = candidate;
 	const hookBase = sanitize(item.title) || 'Big move just dropped.';
 	const indiaHit = isIndiaRelevant(item)
@@ -260,7 +283,7 @@ function fallbackFields(candidate: ShortlistedCandidate): PmCompositionFields {
 
 	switch (cls) {
 		case 'POLICY':
-			action = 'Huddle compliance+GTM; ship 1-pager on impact & counters by EOD.';
+			action = 'Spin up compliance+GTM huddle; ship regulator counter-plan by EOD.';
 			break;
 		case 'LAUNCH':
 			action = 'Run a 30-min spike: API fit + moat check; propose PoC partners by Fri.';
@@ -279,10 +302,20 @@ function fallbackFields(candidate: ShortlistedCandidate): PmCompositionFields {
 			break;
 	}
 
+	if (tone === 'threat') {
+		action = 'Assign response pod; lock owner + regulator call notes by EOD.';
+	}
+	if (tone === 'upside') {
+		action = 'Draft go-live burst; name squad + KPI lift target by Fri.';
+	}
+
+	const tonePrefix = tone === 'threat' ? 'Red flag—' : tone === 'upside' ? 'Upside—' : 'Heads-up—';
+	const hook = `${tonePrefix}${hookBase}`;
+
 	const watch = ensureWatch(candidate, []);
 
 	return {
-		hook: limit(punchy(hookBase), 110),
+		hook: limit(punchy(hook), 110),
 		india_take: limit(punchy(indiaHit), 140),
 		watch,
 		do_this_week: limit(punchy(action), 110),
@@ -312,7 +345,7 @@ function ensureWatch(candidate: ShortlistedCandidate, base: string[]): string[] 
 		.map((s) => limit(punchy(s), 70));
 }
 
-function isIndiaRelevant(item: ImpactResult): boolean {
+function isIndiaRelevant(item: ScoredItem): boolean {
 	return (
 		indiaRelevanceScore({
 			title: item.title,
