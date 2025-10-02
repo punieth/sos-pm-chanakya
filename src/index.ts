@@ -1,10 +1,12 @@
 import { ingestDynamicDiscovery, type DiscoveryEnv } from './orchestrator';
 import { type LLMEnv } from './providers/llm';
 import { selectPmStories, type ShortlistedCandidate } from './pm/select';
+import { parsePmTuning } from './config/pmTuning';
 import { composePmPost, type PmPost } from './pm/compose';
 
 interface Env extends DiscoveryEnv, LLMEnv {
 	PM_MAX_POSTS?: string;
+	PM_TUNING?: string;
 }
 
 export default {
@@ -20,17 +22,21 @@ export default {
 
 		if (url.pathname === '/preview') {
 			const discovery = await ingestDynamicDiscovery(env);
-			const shortlist = selectPmStories(discovery.allItems, resolveLimit(env, 12));
+			const tuningOverrides = parsePmTuning(env.PM_TUNING);
+			const shortlist = selectPmStories(discovery.allItems, resolveLimit(env, 12), tuningOverrides);
 			return json({
 				stats: discovery.stats,
 				providerCounts: discovery.providerCounts,
-				shortlist: shortlist.map(({ item, pmScore, indiaScore, signals, urgency }) => ({
+				shortlist: shortlist.map(({ item, pmScore, indiaScore, finalScore, topic, topicScores, signals, urgency }) => ({
 					title: item.title,
 					url: item.url,
 					domain: item.domain,
 					eventClass: item.eventClass,
 					impactScore: item.impactScore,
 					pmScore,
+					finalScore,
+					topic,
+					topicScores,
 					indiaScore,
 					signals,
 					urgency,
@@ -53,7 +59,8 @@ async function orchestrate(env: Env): Promise<{
 	const startedAt = new Date().toISOString();
 	const discovery = await ingestDynamicDiscovery(env);
 	const limit = resolveLimit(env, 10);
-	const shortlisted = selectPmStories(discovery.allItems, limit);
+	const tuningOverrides = parsePmTuning(env.PM_TUNING);
+	const shortlisted = selectPmStories(discovery.allItems, limit, tuningOverrides);
 	const posts: PmPost[] = [];
 
 	for (const candidate of shortlisted) {

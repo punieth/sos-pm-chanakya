@@ -50,6 +50,8 @@ export const DEFAULT_PROVIDER_COUNTS: ProviderCounts = {
 	registry: 0,
 };
 
+const SUPPORTED_LANGS = new Set(['en', 'en-us', 'en-gb', 'hi']);
+
 export async function runAnalysisPipeline(
 	items: NormalizedItem[],
 	{ kv, logger }: PipelineOptions
@@ -67,15 +69,16 @@ export async function runAnalysisPipeline(
 	}
 
 	const loggerFn: Logger = logger || (() => {});
-	const providerCounts = items.reduce<ProviderCounts>((acc, item) => {
+	const filtered = items.filter(isSupportedLanguage);
+	const providerCounts = filtered.reduce<ProviderCounts>((acc, item) => {
 		const provider = item.provider;
 		acc[provider] = (acc[provider] || 0) + 1;
 		return acc;
 	}, { ...DEFAULT_PROVIDER_COUNTS });
 
-	const graphUpdate = await updateEntityGraph(items, { kv, logger: loggerFn });
+	const graphUpdate = await updateEntityGraph(filtered, { kv, logger: loggerFn });
 	const noveltyHits = Object.values(graphUpdate.itemNovelty).filter(Boolean).length;
-	const classified = items.map((item) => applyClassification(item));
+	const classified = filtered.map((item) => applyClassification(item));
 	const prep = prepareClusters(classified);
 	const impacted = scoreImpact(classified, {
 		graphNovelty: graphUpdate.itemNovelty,
@@ -147,4 +150,12 @@ function summarizeClusters(prep: ClusterPreparation, impacted: ImpactResult[]): 
 		};
 	});
 	return summaries.sort((a, b) => (b.sample?.impact || 0) - (a.sample?.impact || 0));
+}
+
+function isSupportedLanguage(item: NormalizedItem): boolean {
+	const lang = (item.language || '').toLowerCase();
+	if (!lang) {
+		return /[a-z]/i.test(`${item.title || ''} ${item.description || ''}`);
+	}
+	return SUPPORTED_LANGS.has(lang);
 }

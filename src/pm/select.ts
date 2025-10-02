@@ -1,8 +1,8 @@
 import { ImpactResult } from '../types';
 import { sanitize, tokenize } from '../utils/text';
 import { indiaRelevanceScore, isIndiaRelevant } from '../utils/india';
+import { resolvePmTuning, type PmTuning, type TopicKey } from '../config/pmTuning';
 
-const MIN_PM_IMPACT = 0.6;
 const STOPWORDS = new Set(['india', 'indian', 'update', 'policy', 'report', 'launch', 'new', 'latest']);
 
 const COMMON_STOPWORDS = new Set([
@@ -151,7 +151,7 @@ const CLASS_WEIGHT: Record<ImpactResult['eventClass'], number> = {
 	TREND: 0,
 };
 
-const ALLOWED_EVENT_CLASSES = new Set<ImpactResult['eventClass']>(['LAUNCH', 'PARTNERSHIP', 'POLICY', 'COMMERCE']);
+const SUPPORTED_LANGS = new Set(['en', 'en-us', 'en-gb', 'hi', 'en_in', 'en-in']);
 
 const ENTERTAINMENT_KEYWORDS = new Set([
 	'cricket',
@@ -205,41 +205,83 @@ const IPO_KEYWORDS = [
 	'stock market debut',
 ];
 
+function clamp(value: number, min: number, max: number): number {
+	if (Number.isNaN(value) || !Number.isFinite(value)) return min;
+	return Math.max(min, Math.min(max, value));
+}
+
 export interface RankedCandidate {
 	item: ImpactResult;
-	pmScore: number;
+	baseScore: number;
+	finalScore: number;
 	indiaScore: number;
+	productScore: number;
+	topicScores: Record<TopicKey, number>;
+	dominantTopic: TopicKey;
 }
 
 export interface ShortlistedCandidate {
 	item: ImpactResult;
 	pmScore: number;
 	indiaScore: number;
+	productScore: number;
+	finalScore: number;
+	topicScores: Record<TopicKey, number>;
+	topic: TopicKey;
 	signals: string[];
 	urgency: '⚡' | '🛑' | '🧩';
 }
 
-export function selectPmStories(items: ImpactResult[], limit: number): ShortlistedCandidate[] {
-	return dedupeByUrl(dedupeByTopic(dedupeByCluster(rankForPm(items))))
-		.filter(({ item }) => ALLOWED_EVENT_CLASSES.has(item.eventClass))
+export function selectPmStories(
+	items: ImpactResult[],
+	limit: number,
+	tuningOverrides?: Partial<PmTuning>
+): ShortlistedCandidate[] {
+	const tuning = resolvePmTuning(tuningOverrides);
+	const supported = items.filter(isSupportedLanguage);
+	const ranked = rankForPm(supported, tuning);
+	console.log('PM_TOP_PRE', ranked.slice(0, 10).map((r) => ({
+		title: r.item.title,
+		eventClass: r.item.eventClass,
+		baseScore: r.baseScore.toFixed(3),
+		finalScore: r.finalScore.toFixed(3),
+		topic: r.dominantTopic,
+		indiaScore: r.indiaScore.toFixed(3),
+		topicScores: r.topicScores,
+	}))); 
+	const maxItems = Math.max(1, Math.min(limit, tuning.maxShortlist));
+	const deduped = dedupeByCluster(ranked);
+	const topicFiltered = dedupeByTopic(deduped);
+	const withQuotas = applyTopicQuotas(topicFiltered, tuning, maxItems);
+	const withEnglish = dedupeByUrl(withQuotas)
 		.filter(({ item }) => !isMarketNoise(item))
-		.filter(({ item }) => !isEntertainment(item))
-		.filter(({ item, pmScore, indiaScore }) => {
-			const indiaCut = indiaScore >= 0.45;
-			if (!indiaCut) return false;
-			return pmScore >= MIN_PM_IMPACT;
-		})
-		.slice(0, Math.max(1, limit))
-		.map(({ item, pmScore, indiaScore }) => ({
-		item,
-		pmScore,
-		indiaScore,
-		signals: deriveSignals(item),
-		urgency: deriveUrgency(pmScore, item),
+		.filter(({ item }) => !isEntertainment(item));
+	const shortlist = withEnglish
+		.slice(0, maxItems)
+		.map((entry) => ({
+			item: entry.item,
+			pmScore: entry.baseScore,
+			indiaScore: entry.indiaScore,
+			productScore: entry.topicScores.product,
+			finalScore: entry.finalScore,
+			topicScores: entry.topicScores,
+			topic: entry.dominantTopic,
+			signals: deriveSignals(entry.item),
+			urgency: deriveUrgency(entry.baseScore, entry.item, entry.topicScores, tuning),
 		}));
+	console.log('PM_TOP_POST', shortlist.map((r) => ({
+		title: r.item.title,
+		eventClass: r.item.eventClass,
+		baseScore: r.pmScore.toFixed(3),
+		finalScore: r.finalScore.toFixed(3),
+		indiaScore: r.indiaScore.toFixed(3),
+		topic: r.topic,
+	}))); 
+	return shortlist;
 }
 
-export function rankForPm(items: ImpactResult[]): RankedCandidate[] {
+export function rankForPm(items: ImpactResult[], tuning: PmTuning): RankedCandidate[] {
+	const weightFractions = getWeightFractions(tuning.topicWeights);
 	return items
 		.map((item) => {
 			const indiaScore = indiaRelevanceScore({
@@ -248,19 +290,43 @@ export function rankForPm(items: ImpactResult[]): RankedCandidate[] {
 				source: item.source,
 				domain: item.domain,
 			});
-			return {
+			const topicScores = computeTopicScores(item);
+			const baseScore = computeBaseScore(item, indiaScore);
+			const weightedTopicScore =
+				topicScores.regulation * weightFractions.regulation +
+				topicScores.product * weightFractions.product +
+				topicScores.ai * weightFractions.ai +
+				topicScores.other * weightFractions.other;
+			const baseFactor = 0.2 + 0.8 * weightFractions.regulation;
+			const finalScore = clamp(baseScore * baseFactor + weightedTopicScore, 0, 1);
+			const dominantTopic = resolveDominantTopic(topicScores);
+			const ranked: RankedCandidate = {
 				item,
-				pmScore: computePmScore(item, indiaScore),
+				baseScore,
+				finalScore,
 				indiaScore,
+				productScore: topicScores.product,
+				topicScores,
+				dominantTopic,
 			};
+			console.log('PM_RANK', {
+				title: item.title,
+				eventClass: item.eventClass,
+				impact: item.impactScore.toFixed(3),
+				base: baseScore.toFixed(3),
+				final: finalScore.toFixed(3),
+				topicScores,
+				dominantTopic,
+			});
+			return ranked;
 		})
-		.sort((a, b) => b.pmScore - a.pmScore);
+		.sort((a, b) => b.finalScore - a.finalScore);
 }
 
-function computePmScore(item: ImpactResult, indiaScore: number): number {
+function computeBaseScore(item: ImpactResult, indiaScore: number): number {
 	let score = item.impactScore;
-	score += indiaScore * 0.25;
-	if (indiaScore < 0.2) score -= 0.18;
+	score += indiaScore * 0.2;
+	if (indiaScore < 0.2) score -= 0.1;
 	score += CLASS_WEIGHT[item.eventClass] || 0;
 	if ((item.trustedDomainCount || 0) > 1) score += 0.05;
 	const authority = item.impactBreakdown.authority || 0;
@@ -283,11 +349,18 @@ function deriveSignals(item: ImpactResult): string[] {
 		.slice(0, 2);
 }
 
-function deriveUrgency(pmScore: number, item: ImpactResult): '⚡' | '🛑' | '🧩' {
+function deriveUrgency(
+	pmScore: number,
+	item: ImpactResult,
+	topicScores: Record<TopicKey, number>,
+	tuning: PmTuning
+): '⚡' | '🛑' | '🧩' {
 	if (item.eventClass === 'POLICY' && pmScore >= 0.6) return '🛑';
 	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
 		.toLowerCase();
 	if (item.eventClass === 'LAUNCH' && isIpoStory(text)) return '⚡';
+	if (topicScores.product >= 0.5 && pmScore >= 0.55) return '⚡';
+	if (topicScores.ai >= 0.6 && pmScore >= 0.5) return '⚡';
 	if (pmScore >= 0.72) return '⚡';
 	return '🧩';
 }
@@ -297,9 +370,131 @@ function isIpoStory(text: string): boolean {
 	return IPO_KEYWORDS.some((keyword) => text.includes(keyword));
 }
 
-function clamp(value: number, min: number, max: number): number {
-	if (Number.isNaN(value)) return min;
-	return Math.max(min, Math.min(max, value));
+function computeTopicScores(item: ImpactResult): Record<TopicKey, number> {
+	const authority = clamp(item.impactBreakdown?.authority || 0, 0, 1);
+	const product = productSignalScore(item);
+	const ai = aiSignalScore(item);
+	const momentum = clamp(item.impactBreakdown?.momentum || 0, 0, 1);
+	const novelty = clamp(item.impactBreakdown?.graphNovelty || 0, 0, 1);
+	const otherBase = clamp(item.impactScore, 0, 1);
+	let other = clamp(otherBase * 0.4 + momentum * 0.2 + novelty * 0.1, 0, 0.6);
+	if (authority >= 0.35) {
+		other = Math.min(other, 0.3);
+	}
+	return {
+		regulation: authority,
+		product,
+		ai,
+		other,
+	};
+}
+
+function resolveDominantTopic(topicScores: Record<TopicKey, number>): TopicKey {
+	if (topicScores.regulation >= 0.35) return 'regulation';
+	let best: TopicKey = 'other';
+	let bestScore = -Infinity;
+	for (const topic of Object.keys(topicScores) as TopicKey[]) {
+		const value = topicScores[topic];
+		if (value > bestScore) {
+			bestScore = value;
+			best = topic;
+		}
+	}
+	return best;
+}
+
+function getWeightFractions(weights: Record<TopicKey, number>): Record<TopicKey, number> {
+	const total = Object.values(weights).reduce((sum, value) => sum + value, 0) || 1;
+	return {
+		regulation: weights.regulation / total,
+		product: weights.product / total,
+		ai: weights.ai / total,
+		other: weights.other / total,
+	};
+}
+
+function applyTopicQuotas(list: RankedCandidate[], tuning: PmTuning, maxItems: number): RankedCandidate[] {
+	if (list.length <= maxItems) return list;
+	const quotas = computeTopicQuotas(tuning.topicWeights, maxItems);
+	const counts: Record<TopicKey, number> = { regulation: 0, product: 0, ai: 0, other: 0 };
+	const selected: RankedCandidate[] = [];
+	const leftovers: RankedCandidate[] = [];
+	const seen = new Set<string>();
+	for (const entry of list) {
+		const topic = entry.dominantTopic;
+		if (counts[topic] < quotas[topic]) {
+			selected.push(entry);
+			counts[topic]++;
+			seen.add(entry.item.id);
+		} else {
+			leftovers.push(entry);
+		}
+		if (selected.length >= maxItems) break;
+	}
+	if (selected.length < maxItems) {
+		for (const entry of leftovers) {
+			if (selected.length >= maxItems) break;
+			if (seen.has(entry.item.id)) continue;
+			selected.push(entry);
+			seen.add(entry.item.id);
+		}
+	}
+	if (selected.length < maxItems) {
+		for (const entry of list) {
+			if (selected.length >= maxItems) break;
+			if (seen.has(entry.item.id)) continue;
+			selected.push(entry);
+			seen.add(entry.item.id);
+		}
+	}
+	return selected.sort((a, b) => b.finalScore - a.finalScore);
+}
+
+function computeTopicQuotas(weights: Record<TopicKey, number>, maxItems: number): Record<TopicKey, number> {
+	const fractions = getWeightFractions(weights);
+	const raw: Record<TopicKey, number> = {
+		regulation: fractions.regulation * maxItems,
+		product: fractions.product * maxItems,
+		ai: fractions.ai * maxItems,
+		other: fractions.other * maxItems,
+	};
+	const quotas: Record<TopicKey, number> = {
+		regulation: Math.floor(raw.regulation),
+		product: Math.floor(raw.product),
+		ai: Math.floor(raw.ai),
+		other: Math.floor(raw.other),
+	};
+	let allocated = Object.values(quotas).reduce((sum, value) => sum + value, 0);
+	const topics = (['regulation', 'product', 'ai', 'other'] as TopicKey[]).filter((topic) => weights[topic] > 0);
+	for (const topic of topics) {
+		if (quotas[topic] === 0) {
+			quotas[topic] = 1;
+			allocated++;
+		}
+	}
+	if (allocated > maxItems) {
+		while (allocated > maxItems) {
+			const topic = topics.sort((a, b) => quotas[b] - quotas[a])[0];
+			if (quotas[topic] > 0) {
+				quotas[topic]--;
+				allocated--;
+			} else {
+				break;
+			}
+		}
+	} else if (allocated < maxItems) {
+		const remainders = (['regulation', 'product', 'ai', 'other'] as TopicKey[])
+			.map((topic) => ({ topic, remainder: raw[topic] - quotas[topic] }))
+			.sort((a, b) => b.remainder - a.remainder);
+		let idx = 0;
+		while (allocated < maxItems && idx < remainders.length) {
+			const topic = remainders[idx].topic;
+			quotas[topic]++;
+			allocated++;
+			idx++;
+		}
+	}
+	return quotas;
 }
 
 function dedupeByUrl(list: RankedCandidate[]): RankedCandidate[] {
@@ -318,7 +513,7 @@ function dedupeByCluster(list: RankedCandidate[]): RankedCandidate[] {
 	const seen = new Set<string>();
 	const out: RankedCandidate[] = [];
 	for (const entry of list) {
-		const clusterKey = entry.item.clusterId || entry.item.id;
+		const clusterKey = entry.item.clusterId;
 		if (clusterKey && seen.has(clusterKey)) continue;
 		if (clusterKey) seen.add(clusterKey);
 		out.push(entry);
@@ -491,6 +686,49 @@ function categorizeToken(token: string): string | null {
 	return null;
 }
 
+function productSignalScore(item: ImpactResult): number {
+	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
+		.toLowerCase();
+	if (!text) return 0;
+	let score = 0;
+	const CORE_TERMS = ['launch', 'launched', 'introduce', 'unveil', 'deploy', 'release', 'preview', 'beta', 'ship'];
+	const PRODUCT_TERMS = ['platform', 'suite', 'feature', 'product', 'tool', 'sdk', 'api', 'integration', 'workflow', 'stack', 'module'];
+	for (const term of CORE_TERMS) {
+		if (text.includes(term)) score += 0.08;
+	}
+	for (const term of PRODUCT_TERMS) {
+		if (text.includes(term)) score += 0.09;
+	}
+	if (text.includes('model') || text.includes('models')) score += 0.08;
+	if (text.includes('upgrade') || text.includes('update')) score += 0.05;
+	if (text.includes('developer') || text.includes('developers')) score += 0.05;
+	if (text.includes('automation')) score += 0.05;
+	if (/\bgen(?:\s|-)ai\b/.test(text)) score += 0.12;
+	if (text.includes('api')) score += 0.05;
+	if (text.includes('sdk')) score += 0.05;
+	if (text.includes('india')) score += 0.04;
+	return Math.min(1, score);
+}
+
+function aiSignalScore(item: ImpactResult): number {
+	const text = sanitize(`${item.title || ''} ${item.description || ''}`)
+		.toLowerCase();
+	if (!text) return 0;
+	let score = 0;
+	const CORE_AI = ['ai', 'artificial intelligence', 'generative ai', 'gen ai', 'machine learning', 'ml ', ' llm', 'foundation model', 'autogen', 'agent', 'copilot'];
+	const ACTIONS = ['launch', 'unveil', 'introduce', 'ship', 'preview', 'beta', 'general availability', 'ga', 'update'];
+	for (const term of CORE_AI) {
+		if (text.includes(term)) score += 0.12;
+	}
+	for (const term of ACTIONS) {
+		if (text.includes(term)) score += 0.05;
+	}
+	if (text.includes('open source')) score += 0.05;
+	if (text.includes('api')) score += 0.05;
+	if (text.includes('sdk')) score += 0.05;
+	return Math.min(1, score);
+}
+
 function isSameTopic(a: TopicProfile, b: TopicProfile): boolean {
 	if (a.topTokens.length === 0 || b.topTokens.length === 0) return false;
 	const setA = new Set(a.topTokens);
@@ -574,4 +812,11 @@ function isMarketNoise(item: ImpactResult): boolean {
 		.trim();
 	if (!text) return false;
 	return MARKET_NOISE_PATTERNS.some((pattern) => text.includes(pattern));
+}
+function isSupportedLanguage(item: ImpactResult): boolean {
+	const lang = (item.language || '').toLowerCase();
+	if (!lang) {
+		return /[a-z]/i.test(`${item.title || ''} ${item.description || ''}`);
+	}
+	return SUPPORTED_LANGS.has(lang);
 }
