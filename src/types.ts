@@ -21,7 +21,7 @@ export interface NormalizedItem extends SourceItem {
 	entities?: EntityExtraction;
 }
 
-export type EventClassName = 'LAUNCH' | 'PARTNERSHIP' | 'POLICY' | 'COMMERCE' | 'TREND';
+export type EventClassName = 'LAUNCH' | 'PARTNERSHIP' | 'POLICY' | 'COMMERCE' | 'TREND' | 'OTHER';
 
 export interface ClassifiedItem extends NormalizedItem {
 	eventClass: EventClassName;

@@ -2,7 +2,7 @@ import nlp from 'compromise';
 import { EventClassName, NormalizedItem, ClassifiedItem } from '../types';
 import { sanitize, tokenize } from '../utils/text';
 
-const ARCHETYPES: EventClassName[] = ['LAUNCH', 'PARTNERSHIP', 'POLICY', 'COMMERCE', 'TREND'];
+const ARCHETYPES: EventClassName[] = ['LAUNCH', 'PARTNERSHIP', 'POLICY', 'COMMERCE', 'TREND', 'OTHER'];
 
 const KEYWORDS: Record<EventClassName, string[]> = {
 	LAUNCH: ['launch', 'unveil', 'introduce', 'ship', 'debut', 'general availability', 'ga', 'go live', 'beta'],
@@ -10,6 +10,7 @@ const KEYWORDS: Record<EventClassName, string[]> = {
 	POLICY: ['policy', 'regulation', 'compliance', 'license', 'mandate', 'guideline', 'circular', 'order', 'notice'],
 	COMMERCE: ['checkout', 'payments', 'wallet', 'merchant', 'commerce', 'billing', 'upi', 'pos'],
 	TREND: [],
+	OTHER: [],
 };
 
 const SIGNAL_BOOSTS: Partial<Record<EventClassName, string[]>> = {

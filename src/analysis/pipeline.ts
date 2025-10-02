@@ -114,9 +114,9 @@ function summarizeClusters(prep: ClusterPreparation, impacted: ImpactResult[]): 
 		const classCounts = cluster.items.reduce<Record<EventClassName, number>>((acc, item) => {
 			acc[item.eventClass] = (acc[item.eventClass] || 0) + 1;
 			return acc;
-		}, { ADDITION: 0, POWER_SHIFT: 0, RULE_CHANGE: 0, SUBTRACTION: 0, OTHER: 0 });
+		}, {} as Record<EventClassName, number>);
 		const topClass = (Object.entries(classCounts)
-			.sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0] as EventClassName) || 'OTHER';
+			.sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0] as EventClassName) || 'TREND';
 		const tokenCounts: Record<string, number> = {};
 		for (const item of cluster.items) {
 			const tokens = tokenize(`${item.title || ''} ${item.description || ''}`);
@@ -134,7 +134,7 @@ function summarizeClusters(prep: ClusterPreparation, impacted: ImpactResult[]): 
 			.filter((nz): nz is ImpactResult => Boolean(nz))
 			.sort((a, b) => b.impactScore - a.impactScore)[0];
 		const theme =
-			topClass !== 'OTHER'
+			topClass !== 'TREND'
 				? topClass
 				: topTokens.join(' ') || representative?.domain || 'general';
 		return {

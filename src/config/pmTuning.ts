@@ -14,9 +14,9 @@ export interface PmTuning {
 }
 
 const DEFAULT_TOPIC_WEIGHTS: Record<TopicKey, number> = {
-	regulation: 0,
-	product: 0,
-	ai: 90,
+	regulation: 20,
+	product: 50,
+	ai: 20,
 	other: 10,
 };
 
@@ -59,7 +59,12 @@ export function parsePmTuning(raw?: string | null): Partial<PmTuning> | undefine
 			const hasDirect = Object.keys(direct).length > 0;
 			const result: Partial<PmTuning> = {};
 			if (hasDirect) {
-				result.topicWeights = direct;
+				result.topicWeights = {
+					regulation: direct.regulation ?? 0,
+					product: direct.product ?? 0,
+					ai: direct.ai ?? 0,
+					other: direct.other ?? 0,
+				};
 			}
 			if (typeof parsed.maxShortlist === 'number') {
 				result.maxShortlist = parsed.maxShortlist;

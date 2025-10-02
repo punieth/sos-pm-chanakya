@@ -149,6 +149,7 @@ const CLASS_WEIGHT: Record<ImpactResult['eventClass'], number> = {
 	POLICY: 0.15,
 	COMMERCE: 0.14,
 	TREND: 0,
+	OTHER: 0,
 };
 
 const SUPPORTED_LANGS = new Set(['en', 'en-us', 'en-gb', 'hi', 'en_in', 'en-in']);
